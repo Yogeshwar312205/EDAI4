@@ -351,19 +351,21 @@ class ISATagValidator:
             return False
         
         # =================================================================
-        # RULE 1: Only reject OBVIOUS banned words (not short codes)
+        # RULE 0: STRICT BAN LIST CHECK (before anything else!)
+        # Extract alpha-only portion and check against ban list
         # =================================================================
-        if len(normalized) > 4 and normalized in self.BAN_LIST:
+        alpha_only = ''.join(c for c in normalized if c.isalpha())
+        if alpha_only in self.BAN_LIST or normalized in self.BAN_LIST:
             return False
         
         # =================================================================
-        # RULE 2: Must start with a letter
+        # RULE 1: Must start with a letter
         # =================================================================
         if not normalized[0].isalpha():
             return False
         
         # =================================================================
-        # RULE 3: Reject very long strings without numbers (likely words)
+        # RULE 2: Reject very long strings without numbers (likely words)
         # =================================================================
         has_number = any(c.isdigit() for c in normalized)
         
@@ -372,7 +374,7 @@ class ISATagValidator:
             return False
         
         # =================================================================
-        # RULE 4: Check against known ISA patterns (RELAXED)
+        # RULE 3: Check against known ISA patterns (RELAXED)
         # =================================================================
         if self.pattern_standard.match(normalized):
             return True
@@ -387,7 +389,7 @@ class ISATagValidator:
             return True
         
         # =================================================================
-        # RULE 5: Accept anything that looks like CODE-NUMBER
+        # RULE 4: Accept anything that looks like CODE-NUMBER
         # =================================================================
         # Pattern: 2-4 letters + optional dash + 1-4 digits + optional letter
         simple_isa = re.match(r'^[A-Z]{2,4}[-_]?\d{1,4}[A-Z]?$', normalized)
@@ -395,7 +397,7 @@ class ISATagValidator:
             return True
 
         # =================================================================
-        # RULE 6: FALLBACK - Any short string with letters AND numbers
+        # RULE 5: FALLBACK - Any short string with letters AND numbers
         # =================================================================
         # OCR often reads FI-101 as F1-101. This catches those edge cases.
         has_letter = any(c.isalpha() for c in normalized)
@@ -720,10 +722,10 @@ class CircleDetector:
     
     def detect_multiscale(self, image: np.ndarray) -> List[CircleDetection]:
         """
-        Detect circles using HoughCircles with morphological preprocessing.
+        Detect circles using a single, highly-tuned HoughCircles pass.
         
-        Optimized for high-contrast binary P&ID scans with thin/broken circle lines.
-        Uses morphological CLOSE to thicken thin lines before detection.
+        Optimized for dense P&ID scans where instrument bubbles are well-defined
+        but surrounded by noisy text edges and intersecting lines.
         
         Args:
             image: BGR or grayscale image
@@ -737,35 +739,27 @@ class CircleDetector:
         else:
             gray = image.copy()
         
-        all_circles = []
-        
-        # =====================================================================
-        # STRATEGY 1: HoughCircles with morphological CLOSE preprocessing
-        # This thickens thin/broken circle lines so HoughCircles can detect them
-        # =====================================================================
-        
         # Apply Gaussian blur to reduce noise
         blurred = cv2.GaussianBlur(gray, (5, 5), 1.5)
         
-        # Morphological CLOSE to thicken thin lines (key fix for thin P&ID scans)
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        closed = cv2.morphologyEx(blurred, cv2.MORPH_CLOSE, kernel, iterations=2)
-        
-        # HoughCircles with tuned parameters:
-        # - param1=80: Higher Canny threshold filters background noise
-        # - param2=28: Permissive accumulator threshold (between 25→251 and 32→0)
-        # - minDist=30: Increased to prevent overlapping detections
+        # =====================================================================
+        # SINGLE HIGHLY-TUNED HOUGH PASS
+        # - param1=150: VERY HIGH Canny threshold ignores faint text edges
+        # - param2=28:  The sweet spot for vote accumulation
+        # - minDist=40: Instrument bubbles rarely overlap on P&IDs
+        # =====================================================================
         circles = cv2.HoughCircles(
-            closed,
+            blurred,
             cv2.HOUGH_GRADIENT,
             dp=1.2,
-            minDist=30,         # Increased from 20 to prevent overlaps
-            param1=80,          # Higher Canny edge threshold (was 50)
-            param2=28,          # Goldilocks value between 25 and 32
-            minRadius=int(self.MIN_RADIUS),
-            maxRadius=int(self.MAX_RADIUS),
+            minDist=40,         # INCREASED: Forces spatial separation
+            param1=150,         # VERY HIGH: Ignores noisy text edges
+            param2=28,          # Sweet spot for vote accumulation
+            minRadius=10,
+            maxRadius=35,
         )
         
+        all_circles = []
         if circles is not None:
             circles = np.uint16(np.around(circles))
             for c in circles[0, :]:
@@ -774,106 +768,11 @@ class CircleDetector:
                     cy=float(c[1]),
                     radius=float(c[2]),
                 ))
-            print(f"[HOUGH] Strategy 1 (morphClose+tuned): Found {len(circles[0])} circles")
+            print(f"[HOUGH] Found {len(circles[0])} circles (param1=150, minDist=40)")
+        else:
+            print("[HOUGH] Found 0 circles")
         
-        # =====================================================================
-        # STRATEGY 2: HoughCircles with bilateral filter (edge-preserving blur)
-        # =====================================================================
-        bilateral = cv2.bilateralFilter(gray, 9, 75, 75)
-        bilateral_closed = cv2.morphologyEx(bilateral, cv2.MORPH_CLOSE, kernel, iterations=1)
-        
-        circles2 = cv2.HoughCircles(
-            bilateral_closed,
-            cv2.HOUGH_GRADIENT,
-            dp=1.2,
-            minDist=30,
-            param1=70,
-            param2=30,
-            minRadius=int(self.MIN_RADIUS),
-            maxRadius=int(self.MAX_RADIUS),
-        )
-        
-        if circles2 is not None:
-            circles2 = np.uint16(np.around(circles2))
-            for c in circles2[0, :]:
-                all_circles.append(CircleDetection(
-                    cx=float(c[0]),
-                    cy=float(c[1]),
-                    radius=float(c[2]),
-                ))
-            print(f"[HOUGH] Strategy 2 (bilateral): Found {len(circles2[0])} circles")
-        
-        # =====================================================================
-        # STRATEGY 3: Contour-based fallback (catches what HoughCircles misses)
-        # =====================================================================
-        contour_circles = self._detect_contour_circles(gray)
-        all_circles.extend(contour_circles)
-        if contour_circles:
-            print(f"[HOUGH] Strategy 3 (contours): Found {len(contour_circles)} circles")
-        
-        # Deduplicate all results
-        result = self._deduplicate_circles(all_circles)
-        print(f"[HOUGH] Total after dedup: {len(result)} circles")
-        return result
-    
-    def _detect_contour_circles(self, gray: np.ndarray) -> List[CircleDetection]:
-        """Fallback contour-based circle detection."""
-        blurred = cv2.GaussianBlur(gray, (5, 5), 1)
-        
-        # Adaptive threshold
-        binary = cv2.adaptiveThreshold(
-            blurred, 255,
-            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY_INV,
-            blockSize=15,
-            C=2
-        )
-        
-        # Morphological cleanup
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=2)
-        cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_OPEN, kernel, iterations=1)
-        
-        contours, _ = cv2.findContours(cleaned, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-        
-        detections = []
-        for contour in contours:
-            area = cv2.contourArea(contour)
-            if area < self.min_area or area > self.max_area:
-                continue
-            
-            perimeter = cv2.arcLength(contour, True)
-            if perimeter == 0:
-                continue
-            
-            circularity = 4 * np.pi * (area / (perimeter ** 2))
-            if circularity < self.min_circularity:
-                continue
-            
-            x, y, w, h = cv2.boundingRect(contour)
-            if h == 0:
-                continue
-            aspect_ratio = w / h
-            if aspect_ratio < self.MIN_ASPECT_RATIO or aspect_ratio > self.MAX_ASPECT_RATIO:
-                continue
-            
-            (cx, cy), radius = cv2.minEnclosingCircle(contour)
-            
-            if radius < self.MIN_RADIUS or radius > self.MAX_RADIUS:
-                continue
-            
-            enclosing_area = np.pi * radius ** 2
-            fill_ratio = area / enclosing_area if enclosing_area > 0 else 0
-            if fill_ratio < self.MIN_FILL_RATIO:
-                continue
-            
-            detections.append(CircleDetection(
-                cx=float(cx),
-                cy=float(cy),
-                radius=float(radius),
-            ))
-        
-        return detections
+        return self._deduplicate_circles(all_circles)
     
     def _deduplicate_circles(
         self, 
@@ -1863,17 +1762,20 @@ class HybridPerceptionPipeline:
     
     def _is_text_strictly_inside_circle(self, text: OCRText, circle: CircleDetection) -> bool:
         """
-        Check: Text center must be INSIDE the circle (with dynamic tolerance).
+        Forgiving check: Does the text bounding box intersect or sit close to the circle?
         
-        Tolerance is 40% of the circle radius, clamped to [10px, 20px].
-        This handles OCR bboxes that slightly overflow the detected bubble edge.
+        Uses closest-point-on-bbox to circle-center distance check.
+        This is more tolerant of OCR bboxes that partially overlap the circle.
         """
-        tx, ty = text.center
-        dist = np.sqrt((tx - circle.cx)**2 + (ty - circle.cy)**2)
+        # Get the closest point on the text bounding box to the circle's center
+        closest_x = max(text.x1, min(circle.cx, text.x2))
+        closest_y = max(text.y1, min(circle.cy, text.y2))
         
-        # Dynamic tolerance: 40% of radius, min 10px, max 20px
-        tolerance = max(10.0, min(circle.radius * 0.4, 20.0))
-        return dist <= circle.radius + tolerance
+        # Calculate distance from the closest bounding box point to the circle center
+        dist = np.sqrt((closest_x - circle.cx)**2 + (closest_y - circle.cy)**2)
+        
+        # If the bounding box touches the circle (plus 5px leeway), it's inside!
+        return dist <= circle.radius + 5.0
     
     def _merge_split_text_in_circles(
         self,
@@ -1891,10 +1793,10 @@ class HybridPerceptionPipeline:
             "FIC" + "-" + "101" = "FIC-101"  which passes is_strict_isa_tag.
 
         RULES:
-        - Only merge if 2+ text blocks share the same circle.
+        - Only merge if EXACTLY 2-3 text blocks share the same circle (not 5+).
+        - Combined text must be ≤12 characters (ISA tags are short).
         - Sort by Y (top → bottom), join alpha prefix + digit suffix with "-".
         - The merged block inherits the highest confidence of its fragments.
-        - Single fragments inside a circle are returned unchanged.
         """
         if not circles or not text_blocks:
             return text_blocks
@@ -1908,8 +1810,10 @@ class HybridPerceptionPipeline:
                 if id(t) not in used_ids and self._is_text_strictly_inside_circle(t, circle)
             ]
 
-            if len(inside) < 2:
-                continue  # Nothing to merge; keep original blocks
+            # THE FIX: Only merge if there are exactly 2 or 3 items
+            # An ISA tag is never 5 separate words - that's a paragraph
+            if not (2 <= len(inside) <= 3):
+                continue
 
             # Sort top → bottom
             inside.sort(key=lambda t: t.y1)
@@ -1921,6 +1825,12 @@ class HybridPerceptionPipeline:
                 combined_text = parts[0] + "-" + "-".join(parts[1:])
             else:
                 combined_text = "-".join(parts)
+
+            # THE FIX: ISA tags are rarely longer than 10-12 characters
+            # If it's 30 characters long, it's a paragraph, not a tag
+            if len(combined_text) > 12:
+                print(f"  [MERGE SKIP] '{combined_text}' too long ({len(combined_text)} chars > 12)")
+                continue
 
             best_conf = max(t.confidence for t in inside)
 
