@@ -720,8 +720,10 @@ class CircleDetector:
     
     def detect_multiscale(self, image: np.ndarray) -> List[CircleDetection]:
         """
-        Detect circles using multiple threshold strategies.
-        More robust than single-threshold approach.
+        Detect circles using HoughCircles with morphological preprocessing.
+        
+        Optimized for high-contrast binary P&ID scans with thin/broken circle lines.
+        Uses morphological CLOSE to thicken thin lines before detection.
         
         Args:
             image: BGR or grayscale image
@@ -737,46 +739,104 @@ class CircleDetector:
         
         all_circles = []
         
-        # Strategy 1: Adaptive threshold with different block sizes
-        for block_size in [11, 15, 21]:
-            blurred = cv2.GaussianBlur(gray, (5, 5), 1)
-            binary = cv2.adaptiveThreshold(
-                blurred, 255,
-                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                cv2.THRESH_BINARY_INV,
-                blockSize=block_size,
-                C=2
-            )
-            circles = self._detect_from_binary(binary)
-            all_circles.extend(circles)
+        # =====================================================================
+        # STRATEGY 1: HoughCircles with morphological CLOSE preprocessing
+        # This thickens thin/broken circle lines so HoughCircles can detect them
+        # =====================================================================
         
-        # Strategy 2: Fixed thresholds
-        for thresh in [100, 127, 150, 180]:
-            blurred = cv2.GaussianBlur(gray, (5, 5), 1)
-            _, binary = cv2.threshold(blurred, thresh, 255, cv2.THRESH_BINARY_INV)
-            circles = self._detect_from_binary(binary)
-            all_circles.extend(circles)
+        # Apply Gaussian blur to reduce noise
+        blurred = cv2.GaussianBlur(gray, (5, 5), 1.5)
         
-        # Strategy 3: Otsu's method
-        blurred = cv2.GaussianBlur(gray, (5, 5), 1)
-        _, otsu = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-        circles = self._detect_from_binary(otsu)
-        all_circles.extend(circles)
+        # Morphological CLOSE to thicken thin lines (key fix for thin P&ID scans)
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        closed = cv2.morphologyEx(blurred, cv2.MORPH_CLOSE, kernel, iterations=2)
+        
+        # HoughCircles with tuned parameters:
+        # - param1=80: Higher Canny threshold filters background noise
+        # - param2=28: Permissive accumulator threshold (between 25→251 and 32→0)
+        # - minDist=30: Increased to prevent overlapping detections
+        circles = cv2.HoughCircles(
+            closed,
+            cv2.HOUGH_GRADIENT,
+            dp=1.2,
+            minDist=30,         # Increased from 20 to prevent overlaps
+            param1=80,          # Higher Canny edge threshold (was 50)
+            param2=28,          # Goldilocks value between 25 and 32
+            minRadius=int(self.MIN_RADIUS),
+            maxRadius=int(self.MAX_RADIUS),
+        )
+        
+        if circles is not None:
+            circles = np.uint16(np.around(circles))
+            for c in circles[0, :]:
+                all_circles.append(CircleDetection(
+                    cx=float(c[0]),
+                    cy=float(c[1]),
+                    radius=float(c[2]),
+                ))
+            print(f"[HOUGH] Strategy 1 (morphClose+tuned): Found {len(circles[0])} circles")
+        
+        # =====================================================================
+        # STRATEGY 2: HoughCircles with bilateral filter (edge-preserving blur)
+        # =====================================================================
+        bilateral = cv2.bilateralFilter(gray, 9, 75, 75)
+        bilateral_closed = cv2.morphologyEx(bilateral, cv2.MORPH_CLOSE, kernel, iterations=1)
+        
+        circles2 = cv2.HoughCircles(
+            bilateral_closed,
+            cv2.HOUGH_GRADIENT,
+            dp=1.2,
+            minDist=30,
+            param1=70,
+            param2=30,
+            minRadius=int(self.MIN_RADIUS),
+            maxRadius=int(self.MAX_RADIUS),
+        )
+        
+        if circles2 is not None:
+            circles2 = np.uint16(np.around(circles2))
+            for c in circles2[0, :]:
+                all_circles.append(CircleDetection(
+                    cx=float(c[0]),
+                    cy=float(c[1]),
+                    radius=float(c[2]),
+                ))
+            print(f"[HOUGH] Strategy 2 (bilateral): Found {len(circles2[0])} circles")
+        
+        # =====================================================================
+        # STRATEGY 3: Contour-based fallback (catches what HoughCircles misses)
+        # =====================================================================
+        contour_circles = self._detect_contour_circles(gray)
+        all_circles.extend(contour_circles)
+        if contour_circles:
+            print(f"[HOUGH] Strategy 3 (contours): Found {len(contour_circles)} circles")
         
         # Deduplicate all results
-        return self._deduplicate_circles(all_circles)
+        result = self._deduplicate_circles(all_circles)
+        print(f"[HOUGH] Total after dedup: {len(result)} circles")
+        return result
     
-    def _detect_from_binary(self, binary: np.ndarray) -> List[CircleDetection]:
-        """Detect circles from a binary image."""
-        # Clean up with morphology
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=1)
+    def _detect_contour_circles(self, gray: np.ndarray) -> List[CircleDetection]:
+        """Fallback contour-based circle detection."""
+        blurred = cv2.GaussianBlur(gray, (5, 5), 1)
         
-        # Find contours
+        # Adaptive threshold
+        binary = cv2.adaptiveThreshold(
+            blurred, 255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY_INV,
+            blockSize=15,
+            C=2
+        )
+        
+        # Morphological cleanup
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=2)
+        cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_OPEN, kernel, iterations=1)
+        
         contours, _ = cv2.findContours(cleaned, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
         
         detections = []
-        
         for contour in contours:
             area = cv2.contourArea(contour)
             if area < self.min_area or area > self.max_area:
@@ -790,7 +850,6 @@ class CircleDetector:
             if circularity < self.min_circularity:
                 continue
             
-            # Aspect ratio check
             x, y, w, h = cv2.boundingRect(contour)
             if h == 0:
                 continue
@@ -798,12 +857,14 @@ class CircleDetector:
             if aspect_ratio < self.MIN_ASPECT_RATIO or aspect_ratio > self.MAX_ASPECT_RATIO:
                 continue
             
-            # Get enclosing circle
             (cx, cy), radius = cv2.minEnclosingCircle(contour)
             
-            # Fill ratio check
+            if radius < self.MIN_RADIUS or radius > self.MAX_RADIUS:
+                continue
+            
             enclosing_area = np.pi * radius ** 2
-            if enclosing_area > 0 and (area / enclosing_area) < 0.65:
+            fill_ratio = area / enclosing_area if enclosing_area > 0 else 0
+            if fill_ratio < self.MIN_FILL_RATIO:
                 continue
             
             detections.append(CircleDetection(
