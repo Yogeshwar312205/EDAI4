@@ -1,0 +1,594 @@
+# ISA-5.1 Instrument Tag Parsing Rules
+# Reference: ISA-5.1-2024 Instrumentation Symbols and Identification
+
+# ============================================
+# First Letter - Measured/Initiating Variable
+# ============================================
+first_letter:
+  A:
+    name: "Analysis"
+    description: "Composition, pH, conductivity, etc."
+    unit: "varies"
+
+  B:
+    name: "Burner/Combustion"
+    description: "Burner flame or combustion"
+    unit: "varies"
+
+  C:
+    name: "Conductivity"
+    description: "User's choice (often conductivity)"
+    unit: "mS/cm"
+
+  D:
+    name: "Density/Specific Gravity"
+    description: "Density or specific gravity"
+    unit: "kg/m3"
+
+  E:
+    name: "Voltage"
+    description: "Electrical voltage"
+    unit: "V"
+
+  F:
+    name: "Flow"
+    description: "Flow rate"
+    unit: "m3/h"
+
+  G:
+    name: "Gauging/Position"
+    description: "Dimensional measurement"
+    unit: "mm"
+
+  H:
+    name: "Hand/Manual"
+    description: "Manual operation"
+    unit: "N/A"
+
+  I:
+    name: "Current"
+    description: "Electrical current"
+    unit: "A"
+
+  J:
+    name: "Power"
+    description: "Electrical power"
+    unit: "kW"
+
+  K:
+    name: "Time/Schedule"
+    description: "Time or time schedule"
+    unit: "s"
+
+  L:
+    name: "Level"
+    description: "Liquid or solid level"
+    unit: "%"
+
+  M:
+    name: "Moisture/Humidity"
+    description: "Moisture or humidity"
+    unit: "%RH"
+
+  N:
+    name: "User Defined"
+    description: "User's choice"
+    unit: "varies"
+
+  O:
+    name: "User Defined"
+    description: "User's choice"
+    unit: "varies"
+
+  P:
+    name: "Pressure"
+    description: "Pressure or vacuum"
+    unit: "bar"
+
+  Q:
+    name: "Quantity/Event"
+    description: "Quantity or event"
+    unit: "count"
+
+  R:
+    name: "Radiation"
+    description: "Nuclear radiation"
+    unit: "varies"
+
+  S:
+    name: "Speed/Frequency"
+    description: "Speed or frequency"
+    unit: "Hz"
+
+  T:
+    name: "Temperature"
+    description: "Temperature"
+    unit: "degC"
+
+  U:
+    name: "Multivariable"
+    description: "Multiple measured variables"
+    unit: "varies"
+
+  V:
+    name: "Vibration"
+    description: "Mechanical vibration"
+    unit: "mm/s"
+
+  W:
+    name: "Weight/Force"
+    description: "Weight or force"
+    unit: "kg"
+
+  X:
+    name: "Unclassified"
+    description: "Unclassified variable"
+    unit: "varies"
+
+  Y:
+    name: "Event/State"
+    description: "Event or state"
+    unit: "N/A"
+
+  Z:
+    name: "Position"
+    description: "Position or dimension"
+    unit: "mm"
+
+# ============================================
+# Succeeding Letters - Readout/Output Function
+# ============================================
+succeeding_letters:
+  # Passive/Readout Functions
+  I:
+    name: "Indicator"
+    description: "Local or remote indicator"
+    signal_type: "Local"
+    has_output: false
+
+  R:
+    name: "Recorder"
+    description: "Recording device"
+    signal_type: "AI"
+    has_output: false
+
+  G:
+    name: "Glass/Gauge"
+    description: "Sight glass or gauge"
+    signal_type: "Local"
+    has_output: false
+
+  # Active/Output Functions
+  T:
+    name: "Transmitter"
+    description: "Transmits signal to control system"
+    signal_type: "AI"
+    range: "4-20mA"
+    has_output: true
+
+  C:
+    name: "Controller"
+    description: "Controls process variable"
+    signal_type: "AO"
+    has_output: true
+
+  V:
+    name: "Valve"
+    description: "Control valve or on/off valve"
+    signal_type: "AO"
+    has_output: true
+
+  Y:
+    name: "Relay/Compute"
+    description: "Relay, compute, or convert"
+    signal_type: "varies"
+    has_output: true
+
+  E:
+    name: "Element"
+    description: "Primary sensing element"
+    signal_type: "N/A"
+    has_output: false
+
+  # Switch Functions (Digital)
+  S:
+    name: "Switch"
+    description: "On/off switch"
+    signal_type: "DI"
+    has_output: false
+
+  # Alarm Functions
+  A:
+    name: "Alarm"
+    description: "Alarm annunciator"
+    signal_type: "DI"
+    has_output: false
+
+  # Safety Functions
+  Z:
+    name: "Driver/Actuator"
+    description: "Final control element driver"
+    signal_type: "DO"
+    has_output: true
+
+# ============================================
+# Modifier Letters - Alarm/Trip Conditions
+# ============================================
+modifiers:
+  H:
+    name: "High"
+    description: "High limit"
+    alarm_type: "Alarm"
+    priority: "Medium"
+
+  L:
+    name: "Low"
+    description: "Low limit"
+    alarm_type: "Alarm"
+    priority: "Medium"
+
+  HH:
+    name: "High-High"
+    description: "High-high limit (Trip)"
+    alarm_type: "Trip"
+    priority: "Critical"
+    is_safety: true
+
+  LL:
+    name: "Low-Low"
+    description: "Low-low limit (Trip)"
+    alarm_type: "Trip"
+    priority: "Critical"
+    is_safety: true
+
+  D:
+    name: "Differential"
+    description: "Differential measurement"
+    alarm_type: null
+
+  F:
+    name: "Ratio/Fraction"
+    description: "Ratio or fraction"
+    alarm_type: null
+
+  J:
+    name: "Scan"
+    description: "Scanning function"
+    alarm_type: null
+
+  K:
+    name: "Rate of Change"
+    description: "Time derivative"
+    alarm_type: null
+
+  Q:
+    name: "Totalize/Integrate"
+    description: "Totalizer or integrator"
+    alarm_type: null
+
+# ============================================
+# Combined Function Patterns
+# ============================================
+combined_functions:
+  # Indicator-Controller combinations
+  IC:
+    name: "Indicator Controller"
+    signal_type: "AI+AO"
+    description: "Indicates and controls"
+
+  # Transmitter-Indicator combinations
+  TI:
+    name: "Transmitter Indicator"
+    signal_type: "AI"
+    description: "Transmits with local indication"
+
+  # Recorder-Controller combinations
+  RC:
+    name: "Recording Controller"
+    signal_type: "AI+AO"
+    description: "Records and controls"
+
+  # Switch combinations (Safety)
+  SH:
+    name: "Switch High"
+    signal_type: "DI"
+    alarm_type: "Alarm"
+
+  SL:
+    name: "Switch Low"
+    signal_type: "DI"
+    alarm_type: "Alarm"
+
+  SHH:
+    name: "Switch High-High"
+    signal_type: "DI"
+    alarm_type: "Trip"
+    is_safety: true
+
+  SLL:
+    name: "Switch Low-Low"
+    signal_type: "DI"
+    alarm_type: "Trip"
+    is_safety: true
+
+  # Alarm combinations
+  AH:
+    name: "Alarm High"
+    signal_type: "DI"
+    alarm_type: "Alarm"
+
+  AL:
+    name: "Alarm Low"
+    signal_type: "DI"
+    alarm_type: "Alarm"
+
+  AHH:
+    name: "Alarm High-High"
+    signal_type: "DI"
+    alarm_type: "Trip"
+
+  ALL:
+    name: "Alarm Low-Low"
+    signal_type: "DI"
+    alarm_type: "Trip"
+
+# ============================================
+# Signal Type Mapping
+# ============================================
+signal_types:
+  AI:
+    name: "Analog Input"
+    description: "4-20mA analog input signal"
+    range: "4-20mA"
+    typical_devices:
+      - "Transmitter"
+      - "Transducer"
+
+  AO:
+    name: "Analog Output"
+    description: "4-20mA analog output signal"
+    range: "4-20mA"
+    typical_devices:
+      - "Control Valve"
+      - "Variable Speed Drive"
+
+  DI:
+    name: "Digital Input"
+    description: "24VDC digital input signal"
+    range: "24VDC"
+    typical_devices:
+      - "Switch"
+      - "Limit Switch"
+      - "Proximity Sensor"
+
+  DO:
+    name: "Digital Output"
+    description: "24VDC digital output signal"
+    range: "24VDC"
+    typical_devices:
+      - "Solenoid Valve"
+      - "Motor Starter"
+      - "Relay"
+
+# ============================================
+# Common Tag Patterns (RegEx)
+# ============================================
+tag_patterns:
+  # Standard ISA tag: [First Letter][Succeeding Letters]-[Loop Number][Suffix]
+  # Examples: PT-1001, FIC-2001A, LSHH-3001
+
+  standard: "^([A-Z])([A-Z]{1,4})-?(\\d{3,5})([A-Z])?$"
+
+  # With area prefix: [Area]-[Tag]
+  # Examples: 10-PT-1001, AREA1-FIC-2001
+  with_area: "^(\\d{1,3}|[A-Z]+\\d*)-([A-Z])([A-Z]{1,4})-?(\\d{3,5})([A-Z])?$"
+
+  # Equipment tag patterns
+  equipment: "^([A-Z]{1,3})-?(\\d{3,5})([A-Z])?$"
+
+# ============================================
+# Instrument Type Inference Rules
+# ============================================
+type_inference:
+  # Based on first + succeeding letters
+  PT:
+    type: "Pressure Transmitter"
+    category: "Field Instrument"
+    signal: "AI"
+
+  FT:
+    type: "Flow Transmitter"
+    category: "Field Instrument"
+    signal: "AI"
+
+  LT:
+    type: "Level Transmitter"
+    category: "Field Instrument"
+    signal: "AI"
+
+  TT:
+    type: "Temperature Transmitter"
+    category: "Field Instrument"
+    signal: "AI"
+
+  AT:
+    type: "Analyzer Transmitter"
+    category: "Analytical Instrument"
+    signal: "AI"
+
+  PIC:
+    type: "Pressure Indicator Controller"
+    category: "Control System"
+    signal: "AI+AO"
+
+  FIC:
+    type: "Flow Indicator Controller"
+    category: "Control System"
+    signal: "AI+AO"
+
+  LIC:
+    type: "Level Indicator Controller"
+    category: "Control System"
+    signal: "AI+AO"
+
+  TIC:
+    type: "Temperature Indicator Controller"
+    category: "Control System"
+    signal: "AI+AO"
+
+  PCV:
+    type: "Pressure Control Valve"
+    category: "Control Valve"
+    signal: "AO"
+
+  FCV:
+    type: "Flow Control Valve"
+    category: "Control Valve"
+    signal: "AO"
+
+  LCV:
+    type: "Level Control Valve"
+    category: "Control Valve"
+    signal: "AO"
+
+  TCV:
+    type: "Temperature Control Valve"
+    category: "Control Valve"
+    signal: "AO"
+
+  PSH:
+    type: "Pressure Switch High"
+    category: "Switch"
+    signal: "DI"
+    alarm: "High"
+
+  PSL:
+    type: "Pressure Switch Low"
+    category: "Switch"
+    signal: "DI"
+    alarm: "Low"
+
+  PSHH:
+    type: "Pressure Switch High-High"
+    category: "Safety Switch"
+    signal: "DI"
+    alarm: "High-High"
+    is_safety: true
+
+  PSLL:
+    type: "Pressure Switch Low-Low"
+    category: "Safety Switch"
+    signal: "DI"
+    alarm: "Low-Low"
+    is_safety: true
+
+  LSH:
+    type: "Level Switch High"
+    category: "Switch"
+    signal: "DI"
+    alarm: "High"
+
+  LSL:
+    type: "Level Switch Low"
+    category: "Switch"
+    signal: "DI"
+    alarm: "Low"
+
+  LSHH:
+    type: "Level Switch High-High"
+    category: "Safety Switch"
+    signal: "DI"
+    alarm: "High-High"
+    is_safety: true
+
+  LSLL:
+    type: "Level Switch Low-Low"
+    category: "Safety Switch"
+    signal: "DI"
+    alarm: "Low-Low"
+    is_safety: true
+
+  TSH:
+    type: "Temperature Switch High"
+    category: "Switch"
+    signal: "DI"
+    alarm: "High"
+
+  TSL:
+    type: "Temperature Switch Low"
+    category: "Switch"
+    signal: "DI"
+    alarm: "Low"
+
+  TSHH:
+    type: "Temperature Switch High-High"
+    category: "Safety Switch"
+    signal: "DI"
+    alarm: "High-High"
+    is_safety: true
+
+  TSLL:
+    type: "Temperature Switch Low-Low"
+    category: "Safety Switch"
+    signal: "DI"
+    alarm: "Low-Low"
+    is_safety: true
+
+  FSH:
+    type: "Flow Switch High"
+    category: "Switch"
+    signal: "DI"
+    alarm: "High"
+
+  FSL:
+    type: "Flow Switch Low"
+    category: "Switch"
+    signal: "DI"
+    alarm: "Low"
+
+  XV:
+    type: "On/Off Valve"
+    category: "Shutoff Valve"
+    signal: "DO"
+
+  SDV:
+    type: "Shutdown Valve"
+    category: "Safety Valve"
+    signal: "DO"
+    is_safety: true
+
+  BDV:
+    type: "Blowdown Valve"
+    category: "Safety Valve"
+    signal: "DO"
+    is_safety: true
+
+  PI:
+    type: "Pressure Indicator"
+    category: "Local Instrument"
+    signal: "Local"
+
+  TI:
+    type: "Temperature Indicator"
+    category: "Local Instrument"
+    signal: "Local"
+
+  LI:
+    type: "Level Indicator"
+    category: "Local Instrument"
+    signal: "Local"
+
+  FI:
+    type: "Flow Indicator"
+    category: "Local Instrument"
+    signal: "Local"
+
+  LG:
+    type: "Level Gauge/Glass"
+    category: "Local Instrument"
+    signal: "Local"
+
+  PG:
+    type: "Pressure Gauge"
+    category: "Local Instrument"
+    signal: "Local"

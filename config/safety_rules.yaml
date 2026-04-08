@@ -1,0 +1,262 @@
+# IEC 61511 Safety Rules
+# Functional Safety for Safety Instrumented Systems (SIS)
+
+# ============================================
+# Safety Integrity Levels (SIL)
+# ============================================
+sil_levels:
+  SIL1:
+    risk_reduction_factor: "10-100"
+    pfd_avg: "0.1 - 0.01"
+    description: "Low demand mode"
+    requirements:
+      - "Single redundancy may be acceptable"
+      - "Basic diagnostics required"
+
+  SIL2:
+    risk_reduction_factor: "100-1000"
+    pfd_avg: "0.01 - 0.001"
+    description: "Low demand mode"
+    requirements:
+      - "Redundancy typically required (1oo2, 2oo3)"
+      - "Enhanced diagnostics required"
+      - "Proof testing intervals defined"
+
+  SIL3:
+    risk_reduction_factor: "1000-10000"
+    pfd_avg: "0.001 - 0.0001"
+    description: "Low demand mode"
+    requirements:
+      - "Full redundancy required (2oo3, 2oo4)"
+      - "Comprehensive diagnostics"
+      - "Independent verification required"
+
+  SIL4:
+    risk_reduction_factor: "10000-100000"
+    pfd_avg: "0.0001 - 0.00001"
+    description: "Rarely used in process industry"
+    requirements:
+      - "Highest redundancy required"
+      - "Formal methods may be required"
+      - "Not typically used for process safety"
+
+# ============================================
+# Safety Function Types
+# ============================================
+safety_functions:
+  ESD:
+    name: "Emergency Shutdown"
+    description: "Initiates plant or unit emergency shutdown"
+    typical_sil: "SIL2-SIL3"
+    typical_inputs:
+      - "PSHH"
+      - "LSHH"
+      - "TSHH"
+      - "FSLL"
+    typical_outputs:
+      - "SDV"
+      - "BDV"
+      - "XV"
+
+  HIPPS:
+    name: "High Integrity Pressure Protection System"
+    description: "Protects against overpressure"
+    typical_sil: "SIL3"
+    typical_inputs:
+      - "PSHH"
+      - "PT (voted)"
+    typical_outputs:
+      - "SDV"
+
+  BMS:
+    name: "Burner Management System"
+    description: "Controls burner startup/shutdown"
+    typical_sil: "SIL1-SIL2"
+    typical_inputs:
+      - "BSL"
+      - "PSHH"
+      - "TSLL"
+    typical_outputs:
+      - "BDV"
+      - "XV"
+
+  F_AND_G:
+    name: "Fire and Gas System"
+    description: "Detects fire and gas hazards"
+    typical_sil: "SIL1-SIL2"
+    typical_inputs:
+      - "Smoke detector"
+      - "Gas detector"
+      - "Heat detector"
+    typical_outputs:
+      - "Deluge valve"
+      - "Alarm"
+
+# ============================================
+# Trip Logic Patterns
+# ============================================
+trip_logic:
+  patterns:
+    # Voting patterns
+    "1oo1":
+      name: "1 out of 1"
+      description: "Single sensor, no redundancy"
+      typical_sil: "SIL1"
+      fault_tolerant: false
+
+    "1oo2":
+      name: "1 out of 2"
+      description: "Either sensor triggers trip"
+      typical_sil: "SIL2"
+      fault_tolerant: true
+      fault_tolerance_hw: 1
+      mode: "safety_biased"
+
+    "2oo2":
+      name: "2 out of 2"
+      description: "Both sensors must agree to trip"
+      typical_sil: "SIL1"
+      fault_tolerant: false
+      mode: "availability_biased"
+
+    "2oo3":
+      name: "2 out of 3"
+      description: "Two of three sensors triggers trip"
+      typical_sil: "SIL3"
+      fault_tolerant: true
+      fault_tolerance_hw: 1
+      mode: "balanced"
+
+    "2oo4":
+      name: "2 out of 4"
+      description: "Two of four sensors triggers trip"
+      typical_sil: "SIL3"
+      fault_tolerant: true
+      fault_tolerance_hw: 2
+      mode: "high_availability"
+
+# ============================================
+# Cause & Effect Matrix Rules
+# ============================================
+cause_effect:
+  # Cause categories (inputs)
+  cause_types:
+    process_high_high:
+      pattern: ".*HH$"
+      priority: "Critical"
+      action: "Trip"
+
+    process_low_low:
+      pattern: ".*LL$"
+      priority: "Critical"
+      action: "Trip"
+
+    process_high:
+      pattern: ".*H$"
+      priority: "High"
+      action: "Alarm"
+
+    process_low:
+      pattern: ".*L$"
+      priority: "High"
+      action: "Alarm"
+
+    manual:
+      pattern: "HS-.*"
+      priority: "Critical"
+      action: "Varies"
+
+  # Effect categories (outputs)
+  effect_types:
+    shutdown_valve:
+      pattern: "SDV-.*|BDV-.*"
+      action: "Close on trip"
+      fail_safe: "FC"
+
+    control_valve:
+      pattern: ".*CV-.*"
+      action: "Go to safe position"
+      fail_safe: "Varies"
+
+    motor:
+      pattern: "M-.*"
+      action: "Stop"
+      fail_safe: "Stop"
+
+    alarm:
+      pattern: ".*A.*"
+      action: "Annunciate"
+
+  # Interlock logic symbols
+  logic_symbols:
+    "X": "Action taken"
+    "O": "No action"
+    "T": "Time delayed"
+    "L": "Latched"
+    "P": "Permissive"
+
+# ============================================
+# Safety Tag Identification Rules
+# ============================================
+safety_identification:
+  # Tags that indicate SIS involvement
+  sis_indicators:
+    - pattern: ".*SHH.*"
+      is_safety: true
+      typical_function: "High-high trip initiator"
+
+    - pattern: ".*SLL.*"
+      is_safety: true
+      typical_function: "Low-low trip initiator"
+
+    - pattern: "SDV-.*"
+      is_safety: true
+      typical_function: "Shutdown valve"
+
+    - pattern: "BDV-.*"
+      is_safety: true
+      typical_function: "Blowdown valve"
+
+    - pattern: "XV-.*"
+      is_safety: true
+      typical_function: "On/Off valve (may be safety)"
+
+    - pattern: ".*HIPPS.*"
+      is_safety: true
+      typical_function: "HIPPS component"
+
+  # Non-safety indicators
+  non_safety_indicators:
+    - pattern: ".*I$"      # Indicators only
+    - pattern: ".*G$"      # Gauges
+    - pattern: ".*R$"      # Recorders only
+
+# ============================================
+# Validation Rules
+# ============================================
+validation:
+  # Required attributes for SIS instruments
+  required_for_sis:
+    - "sil_rating"
+    - "proof_test_interval"
+    - "failure_mode"
+    - "voting_architecture"
+
+  # Failure mode requirements
+  failure_modes:
+    valves:
+      SDV: "FC"   # Fail Close
+      BDV: "FO"   # Fail Open
+      CV: "Varies"
+
+    transmitters:
+      default: "Fail Safe"
+      options:
+        - "Upscale"
+        - "Downscale"
+
+  # Proof test intervals (months)
+  proof_test_defaults:
+    SIL1: 24
+    SIL2: 12
+    SIL3: 6

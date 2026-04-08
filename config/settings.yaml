@@ -1,0 +1,118 @@
+# EDAI4 Global Settings
+# Configuration file for the E&I Deliverables Extraction system
+
+app:
+  name: "EDAI4"
+  version: "1.0.0"
+  description: "Extraction of E&I Deliverables from P&ID using Generative AI"
+
+# ============================================
+# Input Processing Settings
+# ============================================
+ingestion:
+  # Supported input formats
+  supported_formats:
+    - ".pdf"
+    - ".png"
+    - ".jpg"
+    - ".jpeg"
+    - ".tiff"
+    - ".tif"
+
+  # PDF to image conversion settings
+  pdf:
+    dpi: 300  # 300-600 recommended for OCR
+    colorspace: "rgb"  # rgb or gray
+
+  # Image preprocessing
+  preprocessing:
+    target_dpi: 300
+    grayscale: true
+    denoise: true
+    threshold_method: "adaptive"  # adaptive, otsu, binary
+    edge_detection: false  # Enable Canny edge detection
+
+# ============================================
+# Symbol Detection Settings (YOLOv8)
+# ============================================
+perception:
+  yolo:
+    model_path: "./models/yolov8/best.pt"
+    confidence_threshold: 0.5
+    iou_threshold: 0.45
+    device: "auto"  # auto, cpu, cuda:0
+
+  ocr:
+    engine: "easyocr"  # tesseract or easyocr
+    languages: ["en"]
+    confidence_threshold: 0.6
+
+  # Text normalization patterns
+  normalization:
+    remove_noise: true
+    fix_common_errors: true
+
+# ============================================
+# Graph Construction Settings
+# ============================================
+topology:
+  # Spatial matching settings
+  spatial:
+    max_distance: 100  # pixels - max distance for text-symbol association
+    overlap_threshold: 0.3
+
+  # Neo4j connection
+  neo4j:
+    enabled: false  # Set to true if Neo4j is available
+    uri: "bolt://localhost:7687"
+    database: "edai4"
+
+# ============================================
+# Cognitive Layer Settings (LLM/RAG)
+# ============================================
+cognitive:
+  llm:
+    provider: "gemini"  # gemini, openai, ollama
+    model: "gemini-1.5-flash"  # gemini-1.5-pro, gemini-1.5-flash
+    temperature: 0.1  # Low temperature for deterministic outputs
+    max_tokens: 4096
+
+  # Vector store for RAG
+  vectorstore:
+    type: "chroma"
+    persist_directory: "./data/vectorstore"
+    embedding_model: "models/embedding-001"
+
+# ============================================
+# Output Settings
+# ============================================
+output:
+  directory: "./data/output"
+  formats:
+    - "xlsx"
+    - "csv"
+
+  # Deliverable templates
+  deliverables:
+    instrument_index:
+      enabled: true
+      filename: "instrument_index"
+    io_list:
+      enabled: true
+      filename: "io_list"
+    alarm_list:
+      enabled: true
+      filename: "alarm_list"
+    cause_effect_matrix:
+      enabled: true
+      filename: "cause_effect_matrix"
+
+# ============================================
+# Logging Settings
+# ============================================
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  format: "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}"
+  file: "./logs/edai4.log"
+  rotation: "10 MB"
+  retention: "7 days"
