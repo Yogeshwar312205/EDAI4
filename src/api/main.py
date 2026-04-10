@@ -511,6 +511,161 @@ async def process_image(file: UploadFile = File(...)):
             instruments_count = result.stats.get("instruments", 0)
             nodes_count = len(result.nodes)
             
+            # BUILD GRAPH FROM HYBRID RESULTS
+            if state.graph_builder:
+                print("[API] Building graph from hybrid pipeline results...")
+                try:
+                    # Detect lines/pipes connecting instruments
+                    from src.perception.line_detector import LineDetector
+                    line_detector = LineDetector(
+                        min_line_length=30,
+                        max_line_gap=10,
+                        hough_threshold=50
+                    )
+                    
+                    # Detect lines
+                    lines = line_detector.detect_lines(image)
+                    print(f"[API] Detected {len(lines)} lines/pipes")
+                    
+                    # Prepare nodes for connection detection
+                    nodes_for_connection = []
+                    for i, node in enumerate(result.nodes):
+                        nodes_for_connection.append({
+                            'id': f'node_{i}',
+                            'x1': node.x1,
+                            'y1': node.y1,
+                            'x2': node.x2,
+                            'y2': node.y2,
+                            'tag': node.tag,
+                            'class': node.class_name
+                        })
+                    
+                    # Find connections
+                    connections = line_detector.find_connections(lines, nodes_for_connection, connection_threshold=30.0)
+                    print(f"[API] Found {len(connections)} connections")
+                    
+                    # Build graph manually
+                    from src.topology.graph_builder import GraphBuilder, GraphNode, NodeType, EdgeType
+                    import networkx as nx
+                    
+                    graph = nx.DiGraph()
+                    
+                    # Add nodes
+                    for i, node in enumerate(result.nodes):
+                        node_id = f'node_{i}'
+                        
+                        # Determine node type
+                        if 'instrument' in node.class_name.lower():
+                            node_type = NodeType.INSTRUMENT
+                        elif 'valve' in node.class_name.lower():
+                            node_type = NodeType.VALVE
+                        elif 'equipment' in node.class_name.lower() or 'pump' in node.class_name.lower():
+                            node_type = NodeType.EQUIPMENT
+                        else:
+                            node_type = NodeType.UNKNOWN
+                        
+                        graph_node = GraphNode(
+                            id=node_id,
+                            node_type=node_type,
+                            label=node.tag or node.class_name,
+                            tag=node.tag,
+                            x=(node.x1 + node.x2) / 2,
+                            y=(node.y1 + node.y2) / 2,
+                            width=node.x2 - node.x1,
+                            height=node.y2 - node.y1,
+                            bbox=(node.x1, node.y1, node.x2, node.y2),
+                            confidence=node.confidence,
+                            detection_class=node.class_name,
+                            symbol_class=node.class_name
+                        )
+                        
+                        graph.add_node(node_id, data=graph_node)
+                    
+                    # Add edges from connections
+                    for source_id, target_id in connections:
+                        graph.add_edge(source_id, target_id, edge_type=EdgeType.CONNECTED_TO.value)
+                    
+                    # Create a simple graph object
+                    class SimpleGraph:
+                        def __init__(self, nx_graph):
+                            self.graph = nx_graph
+                            self.nodes = {}
+                            self.edges = []
+                            
+                            # Convert nodes
+                            for node_id, node_data in nx_graph.nodes(data=True):
+                                if 'data' in node_data:
+                                    self.nodes[node_id] = node_data['data']
+                            
+                            # Convert edges
+                            for source, target, edge_data in nx_graph.edges(data=True):
+                                # Create edge object with attributes
+                                edge_obj = type('Edge', (), {
+                                    'source_id': source,
+                                    'target_id': target,
+                                    'edge_type': edge_data.get('edge_type', 'connected_to')
+                                })()
+                                self.edges.append(edge_obj)
+                        
+                        @property
+                        def node_count(self):
+                            return len(self.nodes)
+                        
+                        @property
+                        def edge_count(self):
+                            return len(self.edges)
+                        
+                        def get_all_nodes(self):
+                            return list(self.nodes.values())
+                        
+                        def get_all_edges(self):
+                            return self.edges
+                        
+                        def get_node(self, node_id):
+                            """Get a node by ID"""
+                            return self.nodes.get(node_id)
+                        
+                        def get_edges_from_node(self, node_id):
+                            """Get all edges originating from a node"""
+                            return [e for e in self.edges if e.source_id == node_id]
+                        
+                        def get_edges_to_node(self, node_id):
+                            """Get all edges pointing to a node"""
+                            return [e for e in self.edges if e.target_id == node_id]
+                        
+                        def get_neighbors(self, node_id):
+                            """Get all neighboring nodes"""
+                            neighbors = []
+                            for edge in self.edges:
+                                if edge.source_id == node_id:
+                                    neighbors.append(edge.target_id)
+                                elif edge.target_id == node_id:
+                                    neighbors.append(edge.source_id)
+                            return neighbors
+                        
+                        def get_predecessors(self, node_id):
+                            """Get nodes that point to this node"""
+                            return [e.source_id for e in self.edges if e.target_id == node_id]
+                        
+                        def get_successors(self, node_id):
+                            """Get nodes that this node points to"""
+                            return [e.target_id for e in self.edges if e.source_id == node_id]
+                    
+                    state.current_graph = SimpleGraph(graph)
+                    nodes_count = state.current_graph.node_count
+                    edges_count = state.current_graph.edge_count
+                    
+                    print(f"[API] Graph built: {nodes_count} nodes, {edges_count} edges")
+                    
+                    # Update RAG pipeline
+                    if state.rag_pipeline:
+                        state.rag_pipeline.set_graph(state.current_graph)
+                    
+                except Exception as e:
+                    print(f"[API] Error building graph: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
             graph_summary = {
                 "mode": "hybrid",
                 "yolo_ms": result.timing.get("yolo_ms", 0),
@@ -528,6 +683,8 @@ async def process_image(file: UploadFile = File(...)):
                 "valves": result.stats.get("valves", 0),
                 "equipment": result.stats.get("equipment", 0),
                 "discarded_text": result.stats.get("discarded_text", 0),
+                "nodes": nodes_count,
+                "edges": edges_count,
             }
         
         # Priority 2: High-Density Pipeline (SAHI + PaddleOCR)
@@ -829,13 +986,253 @@ async def get_graph():
     
     edges = []
     for edge in state.current_graph.get_all_edges():
+        # Handle both object and dict formats
+        if hasattr(edge, 'source_id'):
+            source = edge.source_id
+            target = edge.target_id
+            edge_type = edge.edge_type.value if hasattr(edge.edge_type, 'value') else edge.edge_type
+        else:
+            source = edge.source_id if hasattr(edge, 'source_id') else edge['source_id']
+            target = edge.target_id if hasattr(edge, 'target_id') else edge['target_id']
+            edge_type = edge.edge_type if hasattr(edge, 'edge_type') else edge['edge_type']
+        
         edges.append({
-            "source": edge.source_id,
-            "target": edge.target_id,
-            "type": edge.edge_type.value,
+            "source": source,
+            "target": target,
+            "type": edge_type,
         })
     
     return {"nodes": nodes, "edges": edges}
+
+
+# =============================================================================
+# Advanced Features Endpoints
+# =============================================================================
+
+@app.post("/deliverables/generate")
+async def generate_deliverables(
+    pid_reference: str = Form(...),
+    plc_name: str = Form("PLC-001")
+):
+    """Generate professional Excel deliverables"""
+    
+    if not state.current_graph:
+        raise HTTPException(400, "No graph loaded. Process an image first.")
+    
+    try:
+        # Import deliverable generators
+        from src.deliverables import (
+            InstrumentIndexGenerator,
+            IOListGenerator,
+            AlarmListGenerator,
+            ExcelFormatter
+        )
+        
+        # Create Excel formatter
+        formatter = ExcelFormatter()
+        
+        # Generate Instrument Index
+        inst_gen = InstrumentIndexGenerator()
+        inst_df = inst_gen.generate(state.current_graph, pid_reference)
+        formatter.create_formatted_sheet(
+            "Instrument Index",
+            inst_df,
+            f"Instrument Index - {pid_reference}",
+            f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        )
+        
+        # Generate I/O List
+        io_gen = IOListGenerator()
+        io_df = io_gen.generate(state.current_graph, pid_reference, plc_name)
+        formatter.create_formatted_sheet(
+            "IO List",
+            io_df,
+            f"I/O List - {pid_reference}",
+            f"PLC/DCS: {plc_name}"
+        )
+        
+        # Generate Alarm List
+        alarm_gen = AlarmListGenerator()
+        alarm_df = alarm_gen.generate(state.current_graph, pid_reference)
+        formatter.create_formatted_sheet(
+            "Alarm List",
+            alarm_df,
+            f"Alarm & Trip List - {pid_reference}",
+            "Safety Critical Items Highlighted"
+        )
+        
+        # Save to temp file
+        output_dir = tempfile.gettempdir()
+        output_path = os.path.join(output_dir, f"{pid_reference}_deliverables.xlsx")
+        formatter.save(output_path)
+        
+        return FileResponse(
+            output_path,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            filename=f"{pid_reference}_deliverables.xlsx"
+        )
+        
+    except Exception as e:
+        import traceback
+        print(f"Error generating deliverables: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(500, f"Failed to generate deliverables: {str(e)}")
+
+
+@app.get("/design-rules/check")
+async def check_design_rules():
+    """Run automated design rule checks"""
+    
+    if not state.current_graph:
+        raise HTTPException(400, "No graph loaded. Process an image first.")
+    
+    try:
+        from src.advanced import DesignRuleChecker
+        
+        checker = DesignRuleChecker()
+        violations = checker.check_all(state.current_graph)
+        
+        return {
+            "total_violations": len(violations),
+            "critical": len([v for v in violations if v.severity.value == "Critical"]),
+            "warnings": len([v for v in violations if v.severity.value == "Warning"]),
+            "info": len([v for v in violations if v.severity.value == "Info"]),
+            "violations": [
+                {
+                    "rule_id": v.rule_id,
+                    "rule_name": v.rule_name,
+                    "severity": v.severity.value,
+                    "description": v.description,
+                    "affected_items": v.affected_items,
+                    "recommendation": v.recommendation,
+                    "location": v.location
+                }
+                for v in violations
+            ]
+        }
+        
+    except Exception as e:
+        import traceback
+        print(f"Error checking design rules: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(500, f"Design rule check failed: {str(e)}")
+
+
+@app.post("/flow/trace")
+async def trace_flow(
+    start_node: str = Form(...),
+    direction: str = Form("downstream")
+):
+    """Trace flow path from a starting node"""
+    
+    if not state.current_graph:
+        raise HTTPException(400, "No graph loaded. Process an image first.")
+    
+    try:
+        from src.advanced import FlowSimulator
+        
+        simulator = FlowSimulator()
+        flow_path = simulator.trace_flow_path(
+            state.current_graph,
+            start_node,
+            direction
+        )
+        
+        return {
+            "start_node": flow_path.start_node,
+            "end_node": flow_path.end_node,
+            "path_nodes": flow_path.path_nodes,
+            "path_edges": flow_path.path_edges,
+            "total_distance": flow_path.total_distance,
+            "blocked_by": flow_path.blocked_by
+        }
+        
+    except Exception as e:
+        import traceback
+        print(f"Error tracing flow: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(500, f"Flow trace failed: {str(e)}")
+
+
+@app.post("/flow/simulate-valve")
+async def simulate_valve_closure(
+    valve_tag: str = Form(...),
+    source_node: str = Form(...),
+    state_open: bool = Form(False)
+):
+    """Simulate valve closure and show affected equipment"""
+    
+    if not state.current_graph:
+        raise HTTPException(400, "No graph loaded. Process an image first.")
+    
+    try:
+        from src.advanced import FlowSimulator
+        
+        simulator = FlowSimulator()
+        result = simulator.simulate_valve_closure(
+            state.current_graph,
+            valve_tag,
+            source_node
+        )
+        
+        return result
+        
+    except Exception as e:
+        import traceback
+        print(f"Error simulating valve: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(500, f"Valve simulation failed: {str(e)}")
+
+
+@app.post("/diff/compare")
+async def compare_pids(
+    old_image: UploadFile = File(...),
+    new_image: UploadFile = File(...)
+):
+    """Compare two P&ID versions and identify changes"""
+    
+    try:
+        from src.advanced import PIDDiffEngine
+        import cv2
+        import numpy as np
+        
+        # Process old image
+        old_contents = await old_image.read()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+            tmp.write(old_contents)
+            old_path = tmp.name
+        
+        # Process new image
+        new_contents = await new_image.read()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+            tmp.write(new_contents)
+            new_path = tmp.name
+        
+        # TODO: Process both images through perception pipeline
+        # For now, return placeholder
+        old_result = {"detections": []}
+        new_result = {"detections": []}
+        
+        # Run diff engine
+        diff_engine = PIDDiffEngine()
+        diff_result = diff_engine.compare(old_result, new_result)
+        
+        # Cleanup
+        os.unlink(old_path)
+        os.unlink(new_path)
+        
+        return {
+            "summary": diff_result.summary,
+            "added": diff_result.added_items,
+            "deleted": diff_result.deleted_items,
+            "modified": diff_result.modified_items
+        }
+        
+    except Exception as e:
+        import traceback
+        print(f"Error comparing P&IDs: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(500, f"Diff comparison failed: {str(e)}")
 
 
 # =============================================================================

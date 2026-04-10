@@ -6,7 +6,10 @@ import { FileUpload } from '@/components/FileUpload';
 import { InteractiveCanvas } from '@/components/InteractiveCanvas';
 import { DataTable } from '@/components/DataTable';
 import { GraphViewer } from '@/components/GraphViewer';
-import { Layers, Table, Network, Upload as UploadIcon } from 'lucide-react';
+import { DeliverablesPanel } from '@/components/DeliverablesPanel';
+import { DesignRulesDashboard } from '@/components/DesignRulesDashboard';
+import { FlowSimulator } from '@/components/FlowSimulator';
+import { Layers, Table, Network, Upload as UploadIcon, FileText, Shield, Workflow } from 'lucide-react';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -63,6 +66,24 @@ function AppContent() {
                   active={activeView === 'graph'}
                   onClick={() => setActiveView('graph')}
                 />
+                <TabButton
+                  icon={<FileText className="w-4 h-4" />}
+                  label="Deliverables"
+                  active={activeView === 'deliverables'}
+                  onClick={() => setActiveView('deliverables')}
+                />
+                <TabButton
+                  icon={<Shield className="w-4 h-4" />}
+                  label="Design Rules"
+                  active={activeView === 'rules'}
+                  onClick={() => setActiveView('rules')}
+                />
+                <TabButton
+                  icon={<Workflow className="w-4 h-4" />}
+                  label="Flow Sim"
+                  active={activeView === 'flow'}
+                  onClick={() => setActiveView('flow')}
+                />
               </div>
             )}
           </div>
@@ -106,42 +127,39 @@ function AppContent() {
         ) : (
           /* Analysis View */
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-180px)]">
-            {/* Left: Canvas or Graph (2/3 width) */}
+            {/* Left: Main View (2/3 width) */}
             <div className="lg:col-span-2 h-full overflow-hidden">
               {activeView === 'canvas' && uploadedImage && processingResult ? (
                 <InteractiveCanvas
                   imageUrl={uploadedImage}
                   detections={processingResult.detections}
-                  imageSize={{ width: 1200, height: 800 }} // Will be dynamic from backend
+                  imageSize={{ width: 1200, height: 800 }}
                 />
               ) : activeView === 'graph' ? (
                 graphData && graphData.nodes && graphData.nodes.length > 0 ? (
                   <GraphViewer graphData={graphData} />
                 ) : (
-                  <div className="w-full h-full bg-industrial-800 rounded-lg border border-industrial-600 flex items-center justify-center">
-                    <div className="text-center text-industrial-400">
-                      <UploadIcon className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                      <p className="text-lg mb-2">No Graph Data Available</p>
-                      <p className="text-sm">Process a P&ID image to generate topology graph</p>
-                    </div>
-                  </div>
+                  <EmptyState message="No Graph Data Available" />
                 )
+              ) : activeView === 'deliverables' ? (
+                <DeliverablesPanel />
+              ) : activeView === 'rules' ? (
+                <DesignRulesDashboard />
+              ) : activeView === 'flow' ? (
+                <FlowSimulator />
               ) : (
-                <div className="w-full h-full bg-industrial-800 rounded-lg border border-industrial-600 flex items-center justify-center">
-                  <div className="text-center text-industrial-400">
-                    <UploadIcon className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                    <p>No data available</p>
-                  </div>
-                </div>
+                <EmptyState message="No data available" />
               )}
             </div>
 
-            {/* Right: Data Table (1/3 width) */}
-            <div className="h-full overflow-hidden">
-              {processingResult && (
-                <DataTable detections={processingResult.detections} />
-              )}
-            </div>
+            {/* Right: Data Table (1/3 width) - Only show for canvas/graph views */}
+            {(activeView === 'canvas' || activeView === 'graph') && (
+              <div className="h-full overflow-hidden">
+                {processingResult && (
+                  <DataTable detections={processingResult.detections} />
+                )}
+              </div>
+            )}
           </div>
         )}
       </main>
@@ -184,6 +202,15 @@ const TabButton: React.FC<{
     {icon}
     {label}
   </button>
+);
+
+const EmptyState: React.FC<{ message: string }> = ({ message }) => (
+  <div className="w-full h-full bg-industrial-800 rounded-lg border border-industrial-600 flex items-center justify-center">
+    <div className="text-center text-industrial-400">
+      <UploadIcon className="w-16 h-16 mx-auto mb-4 opacity-50" />
+      <p>{message}</p>
+    </div>
+  </div>
 );
 
 const FeatureCard: React.FC<{
