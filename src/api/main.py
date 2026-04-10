@@ -13,6 +13,10 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
+# Load environment variables FIRST (before any other imports that might need them)
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, File, UploadFile, HTTPException, Query, Form
 from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -222,7 +226,15 @@ class PipelineState:
                 print("Set YOLO_MODEL_PATH environment variable or place best.pt in models/")
             
             self.graph_builder = GraphBuilder()
-            self.rag_pipeline = RAGPipeline(use_llm=False)
+            
+            # Initialize RAG with LLM enabled if API key is available
+            api_key = os.getenv("GOOGLE_API_KEY")
+            use_llm = bool(api_key)
+            if api_key:
+                print(f"GOOGLE_API_KEY found: {api_key[:10]}...{api_key[-4:]}")
+            else:
+                print("WARNING: GOOGLE_API_KEY not found - LLM features disabled")
+            self.rag_pipeline = RAGPipeline(use_llm=use_llm)
             self._initialized = True
             
         except ImportError as e:

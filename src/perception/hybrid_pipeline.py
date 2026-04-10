@@ -1581,13 +1581,16 @@ class HybridPerceptionPipeline:
             
             # -----------------------------------------------------------------
             # Step 2: Try to match to Hough Circle
-            # IRON GATE: Text inside circle must ALSO pass ISA validation
+            # TRUST GEOMETRY: Text inside circle that is ISA OR pure digit
             # -----------------------------------------------------------------
             for circle in circles:
                 if self._is_text_strictly_inside_circle(text, circle):
-                    # Only create instrument if text is a valid ISA tag
-                    if not text.is_isa_tag:
-                        # Text inside circle but not ISA - just associate, don't create node
+                    # THE FIX: Check if the text is purely a number (loop number)
+                    is_pure_digit = text.text.strip().isdigit()
+                    
+                    # Only reject if it fails ISA AND isn't a loop number
+                    if not text.is_isa_tag and not is_pure_digit:
+                        # Text inside circle but not ISA and not digit - skip
                         circle.matched_text = text.text.upper()
                         text.matched_to_node = True  # Mark as processed
                         print(f"  [CIRCLE] '{text.text}' inside circle but NOT ISA - skipped")
@@ -1614,7 +1617,10 @@ class HybridPerceptionPipeline:
                     # Check for duplicate (don't add if YOLO already found it)
                     if not self._is_duplicate_node(new_node, all_nodes):
                         all_nodes.append(new_node)
-                        print(f"  [CIRCLE] '{text.text}' → instrument.bubble")
+                        if is_pure_digit:
+                            print(f"  [CIRCLE] '{text.text}' (loop number) → instrument.bubble")
+                        else:
+                            print(f"  [CIRCLE] '{text.text}' → instrument.bubble")
                     break
             
             if matched:
@@ -1774,8 +1780,8 @@ class HybridPerceptionPipeline:
         # Calculate distance from the closest bounding box point to the circle center
         dist = np.sqrt((closest_x - circle.cx)**2 + (closest_y - circle.cy)**2)
         
-        # If the bounding box touches the circle (plus 5px leeway), it's inside!
-        return dist <= circle.radius + 5.0
+        # If the bounding box touches the circle (plus 15px leeway), it's inside!
+        return dist <= circle.radius + 15.0
     
     def _merge_split_text_in_circles(
         self,

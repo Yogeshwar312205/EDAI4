@@ -60,7 +60,7 @@ class RAGPipeline:
         self,
         graph: Optional[PIDGraph] = None,
         api_key: Optional[str] = None,
-        model: str = "gemini-1.5-flash",
+        model: str = "gemini-2.0-flash",
         use_llm: bool = True,
     ):
         """
@@ -69,7 +69,7 @@ class RAGPipeline:
         Args:
             graph: Optional PIDGraph for data queries
             api_key: Google Gemini API key (optional)
-            model: Model to use (gemini-1.5-flash, gemini-1.5-pro)
+            model: Model to use (gemini-2.0-flash, gemini-1.5-pro, gemini-pro)
             use_llm: Whether to use LLM for response generation
         """
         self.graph = graph
