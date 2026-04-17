@@ -9,6 +9,7 @@ import io
 import base64
 import tempfile
 import json
+import logging
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -23,6 +24,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import uvicorn
+
+# Setup logger
+logger = logging.getLogger(__name__)
 
 # EDAI4 imports will be done lazily to avoid import errors if deps missing
 
@@ -983,6 +987,29 @@ async def get_graph():
             "x": node.x,
             "y": node.y,
         })
+    
+    # Debug logging for coordinate analysis
+    if nodes:
+        x_coords = [n["x"] for n in nodes]
+        y_coords = [n["y"] for n in nodes]
+        logger.info("="*60)
+        logger.info(f"GRAPH API COORDINATE ANALYSIS")
+        logger.info("="*60)
+        logger.info(f"Total nodes: {len(nodes)}")
+        logger.info(f"X coordinates: min={min(x_coords):.1f}, max={max(x_coords):.1f}, span={max(x_coords)-min(x_coords):.1f}")
+        logger.info(f"Y coordinates: min={min(y_coords):.1f}, max={max(y_coords):.1f}, span={max(y_coords)-min(y_coords):.1f}")
+        logger.info(f"First 5 nodes:")
+        for i, node in enumerate(nodes[:5]):
+            logger.info(f"  {node['id']}: ({node['x']:.1f}, {node['y']:.1f}) - {node['tag']}")
+        logger.info("="*60)
+        
+        # Check if coordinates are clustered
+        x_span = max(x_coords) - min(x_coords)
+        y_span = max(y_coords) - min(y_coords)
+        if x_span < 200 or y_span < 200:
+            logger.warning("⚠️  COORDINATES ARE CLUSTERED! This will cause minimap issues.")
+            logger.warning(f"   X span: {x_span:.1f}px, Y span: {y_span:.1f}px")
+            logger.warning("   Expected: >1000px for proper distribution")
     
     edges = []
     for edge in state.current_graph.get_all_edges():

@@ -14,11 +14,25 @@ interface FlowPath {
   blocked_by?: string;
 }
 
+interface SimulationResult {
+  valve_id: string;
+  action: 'open' | 'close';
+  affected_nodes: string[];
+  flow_status: string;
+  message: string;
+}
+
 export const FlowSimulator: React.FC = () => {
   const [mode, setMode] = useState<'trace' | 'simulate'>('trace');
   const [startNode, setStartNode] = useState('');
   const [direction, setDirection] = useState<'downstream' | 'upstream'>('downstream');
   const [flowPath, setFlowPath] = useState<FlowPath | null>(null);
+  
+  // Valve simulation state
+  const [selectedValve, setSelectedValve] = useState('');
+  const [valveAction, setValveAction] = useState<'open' | 'close'>('close');
+  const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null);
+  
   const { processingResult } = useAppStore();
 
   const traceMutation = useMutation({
@@ -35,11 +49,36 @@ export const FlowSimulator: React.FC = () => {
     },
   });
 
+  const simulateMutation = useMutation({
+    mutationFn: async () => {
+      const formData = new FormData();
+      formData.append('valve_id', selectedValve);
+      formData.append('action', valveAction);
+
+      const response = await axios.post('/api/flow/simulate', formData);
+      return response.data;
+    },
+    onSuccess: (data) => {
+      setSimulationResult(data);
+    },
+  });
+
   const handleTrace = () => {
     if (startNode) {
       traceMutation.mutate();
     }
   };
+
+  const handleSimulate = () => {
+    if (selectedValve) {
+      simulateMutation.mutate();
+    }
+  };
+
+  // Get valve nodes from detections
+  const valveNodes = processingResult?.detections.filter(
+    (det) => det.class_name.toLowerCase().includes('valve')
+  ) || [];
 
   return (
     <div className="h-full bg-industrial-900 rounded-lg border border-industrial-600 flex flex-col overflow-hidden">
@@ -155,18 +194,144 @@ export const FlowSimulator: React.FC = () => {
             </button>
           </div>
         ) : (
-          <div className="text-center py-8">
-            <Zap className="w-12 h-12 text-accent-yellow mx-auto mb-4" />
-            <p className="text-industrial-400">
-              Valve simulation coming soon...
-            </p>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-industrial-300 mb-2">
+                Select Valve
+              </label>
+              <select
+                value={selectedValve}
+                onChange={(e) => setSelectedValve(e.target.value)}
+                className="w-full px-4 py-2 bg-industrial-900 border border-industrial-600 rounded-lg text-industrial-200 focus:outline-none focus:border-accent-blue focus:ring-1 focus:ring-accent-blue"
+              >
+                <option value="">Select a valve...</option>
+                {valveNodes.map((det, idx) => (
+                  <option key={idx} value={det.tag || `valve_${idx}`}>
+                    {det.tag || `Valve ${idx + 1}`} - {det.class_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-industrial-300 mb-2">
+                Action
+              </label>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setValveAction('close')}
+                  className={`flex-1 px-4 py-2 rounded-lg font-medium transition-all ${
+                    valveAction === 'close'
+                      ? 'bg-accent-red text-industrial-950'
+                      : 'bg-industrial-700 text-industrial-300'
+                  }`}
+                >
+                  <Square className="w-4 h-4 inline mr-2" />
+                  Close Valve
+                </button>
+                <button
+                  onClick={() => setValveAction('open')}
+                  className={`flex-1 px-4 py-2 rounded-lg font-medium transition-all ${
+                    valveAction === 'open'
+                      ? 'bg-accent-green text-industrial-950'
+                      : 'bg-industrial-700 text-industrial-300'
+                  }`}
+                >
+                  <Play className="w-4 h-4 inline mr-2" />
+                  Open Valve
+                </button>
+              </div>
+            </div>
+
+            <button
+              onClick={handleSimulate}
+              disabled={!selectedValve || simulateMutation.isPending}
+              className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-accent-yellow hover:bg-accent-yellow/80 disabled:bg-industrial-600 disabled:cursor-not-allowed text-industrial-950 font-semibold rounded-lg transition-all"
+            >
+              {simulateMutation.isPending ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-industrial-950 border-t-transparent rounded-full animate-spin" />
+                  Simulating...
+                </>
+              ) : (
+                <>
+                  <Zap className="w-5 h-5" />
+                  Simulate Valve Action
+                </>
+              )}
+            </button>
           </div>
         )}
       </div>
 
       {/* Results */}
       <div className="flex-1 overflow-auto p-6">
-        {flowPath ? (
+        {mode === 'simulate' && simulationResult ? (
+          <div className="space-y-4">
+            {/* Simulation Results */}
+            <div className="bg-industrial-800 rounded-lg p-4 border border-industrial-600">
+              <h3 className="text-lg font-semibold text-industrial-200 mb-3">
+                Simulation Results
+              </h3>
+              <div className="space-y-3">
+                <InfoItem label="Valve ID" value={simulationResult.valve_id} />
+                <InfoItem 
+                  label="Action" 
+                  value={simulationResult.action.toUpperCase()} 
+                />
+                <InfoItem 
+                  label="Flow Status" 
+                  value={simulationResult.flow_status} 
+                />
+              </div>
+              
+              <div className={`mt-4 p-3 rounded-lg border ${
+                simulationResult.action === 'close' 
+                  ? 'bg-accent-red/20 border-accent-red' 
+                  : 'bg-accent-green/20 border-accent-green'
+              }`}>
+                <p className={`text-sm font-medium ${
+                  simulationResult.action === 'close' 
+                    ? 'text-accent-red' 
+                    : 'text-accent-green'
+                }`}>
+                  {simulationResult.message}
+                </p>
+              </div>
+            </div>
+
+            {/* Affected Nodes */}
+            {simulationResult.affected_nodes.length > 0 && (
+              <div className="bg-industrial-800 rounded-lg p-4 border border-industrial-600">
+                <h3 className="text-sm font-semibold text-industrial-300 mb-3">
+                  Affected Nodes ({simulationResult.affected_nodes.length})
+                </h3>
+                <div className="space-y-2 max-h-64 overflow-auto">
+                  {simulationResult.affected_nodes.map((node, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center gap-2 p-2 bg-industrial-900 rounded"
+                    >
+                      <span className="w-6 h-6 flex items-center justify-center bg-accent-yellow text-industrial-950 rounded-full text-xs font-bold">
+                        {idx + 1}
+                      </span>
+                      <span className="text-sm text-industrial-300 font-mono">
+                        {node}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Visualization Hint */}
+            <div className="bg-accent-yellow/10 border border-accent-yellow rounded-lg p-4">
+              <p className="text-sm text-accent-yellow">
+                💡 Switch to Canvas view to see the affected components highlighted
+              </p>
+            </div>
+          </div>
+        ) : mode === 'trace' && flowPath ? (
           <div className="space-y-4">
             {/* Path Info */}
             <div className="bg-industrial-800 rounded-lg p-4 border border-industrial-600">
@@ -224,11 +389,23 @@ export const FlowSimulator: React.FC = () => {
         ) : (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
-              <Workflow className="w-16 h-16 text-industrial-600 mx-auto mb-4" />
-              <p className="text-industrial-400 mb-2">No flow path traced yet</p>
-              <p className="text-sm text-industrial-500">
-                Select a start node and click "Trace Flow Path"
-              </p>
+              {mode === 'trace' ? (
+                <>
+                  <Workflow className="w-16 h-16 text-industrial-600 mx-auto mb-4" />
+                  <p className="text-industrial-400 mb-2">No flow path traced yet</p>
+                  <p className="text-sm text-industrial-500">
+                    Select a start node and click "Trace Flow Path"
+                  </p>
+                </>
+              ) : (
+                <>
+                  <Zap className="w-16 h-16 text-industrial-600 mx-auto mb-4" />
+                  <p className="text-industrial-400 mb-2">No simulation run yet</p>
+                  <p className="text-sm text-industrial-500">
+                    Select a valve and action, then click "Simulate Valve Action"
+                  </p>
+                </>
+              )}
             </div>
           </div>
         )}

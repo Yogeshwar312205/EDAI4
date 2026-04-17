@@ -1,6 +1,7 @@
 // Main Application Component
 import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ReactFlowProvider } from 'reactflow';
 import { useAppStore } from '@/store/useAppStore';
 import { FileUpload } from '@/components/FileUpload';
 import { InteractiveCanvas } from '@/components/InteractiveCanvas';
@@ -126,9 +127,13 @@ function AppContent() {
           </div>
         ) : (
           /* Analysis View */
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-180px)]">
-            {/* Left: Main View (2/3 width) */}
-            <div className="lg:col-span-2 h-full overflow-hidden">
+          <div className={`grid gap-6 h-[calc(100vh-180px)] ${
+            activeView === 'canvas' ? 'grid-cols-1 lg:grid-cols-3' : 'grid-cols-1'
+          }`}>
+            {/* Main View - Full width for graph/deliverables/rules/flow, 2/3 for canvas */}
+            <div className={`h-full overflow-hidden ${
+              activeView === 'canvas' ? 'lg:col-span-2' : 'col-span-1'
+            }`}>
               {activeView === 'canvas' && uploadedImage && processingResult ? (
                 <InteractiveCanvas
                   imageUrl={uploadedImage}
@@ -137,7 +142,9 @@ function AppContent() {
                 />
               ) : activeView === 'graph' ? (
                 graphData && graphData.nodes && graphData.nodes.length > 0 ? (
-                  <GraphViewer graphData={graphData} />
+                  <ReactFlowProvider>
+                    <GraphViewer graphData={graphData} />
+                  </ReactFlowProvider>
                 ) : (
                   <EmptyState message="No Graph Data Available" />
                 )
@@ -152,8 +159,8 @@ function AppContent() {
               )}
             </div>
 
-            {/* Right: Data Table (1/3 width) - Only show for canvas/graph views */}
-            {(activeView === 'canvas' || activeView === 'graph') && (
+            {/* Right: Data Table (1/3 width) - Only show for canvas view */}
+            {activeView === 'canvas' && (
               <div className="h-full overflow-hidden">
                 {processingResult && (
                   <DataTable detections={processingResult.detections} />

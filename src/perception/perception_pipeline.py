@@ -219,6 +219,20 @@ class PerceptionPipeline:
         # Step 4: Structure extraction
         self._extract_structured_data(result)
         
+        # Log coordinate ranges for debugging
+        all_instruments = result.instruments + result.equipment + result.lines
+        if all_instruments:
+            x_coords = [inst.x for inst in all_instruments]
+            y_coords = [inst.y for inst in all_instruments]
+            logger.info("="*60)
+            logger.info("COORDINATE ANALYSIS")
+            logger.info(f"Total instruments: {len(all_instruments)}")
+            logger.info(f"X range: {min(x_coords):.1f} to {max(x_coords):.1f} (span: {max(x_coords)-min(x_coords):.1f})")
+            logger.info(f"Y range: {min(y_coords):.1f} to {max(y_coords):.1f} (span: {max(y_coords)-min(y_coords):.1f})")
+            if max(x_coords) - min(x_coords) < 200 or max(y_coords) - min(y_coords) < 200:
+                logger.warning("⚠️  Coordinates are clustered! Check SAHI detection.")
+            logger.info("="*60)
+        
         result.processing_time_ms = (time.time() - start_time) * 1000
         
         logger.info(f"Pipeline completed in {result.processing_time_ms:.1f}ms")
@@ -289,6 +303,10 @@ class PerceptionPipeline:
                 detection_confidence=assoc.detection.confidence,
                 association_confidence=assoc.confidence,
             )
+            
+            # Debug logging for first few instruments
+            if len(result.instruments) + len(result.equipment) < 5:
+                logger.debug(f"Instrument {tag_number}: bbox={bbox.to_tuple()}, center=({bbox.center[0]:.1f}, {bbox.center[1]:.1f})")
             
             # Categorize by type
             if tag_type == "instrument" or "instrument" in assoc.detection.class_name.lower():

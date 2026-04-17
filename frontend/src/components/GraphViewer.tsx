@@ -1,5 +1,6 @@
-// Feature 3: Topology/Knowledge Graph Viewer with Physics
-import React, { useCallback, useMemo, useState } from 'react';
+// Professional P&ID Topology Graph Viewer
+// Maintains exact spatial relationships from original P&ID
+import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import ReactFlow, {
   Node,
   Edge,
@@ -10,11 +11,13 @@ import ReactFlow, {
   useEdgesState,
   ConnectionLineType,
   MarkerType,
+  useReactFlow,
+  Panel,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { useAppStore } from '@/store/useAppStore';
 import type { GraphData } from '@/types/api';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, Maximize2, ZoomIn, ZoomOut } from 'lucide-react';
 
 interface GraphViewerProps {
   graphData: GraphData;
@@ -23,8 +26,13 @@ interface GraphViewerProps {
 export const GraphViewer: React.FC<GraphViewerProps> = ({ graphData }) => {
   const { selectedNodeId, setSelectedNodeId } = useAppStore();
   const [error, setError] = useState<string | null>(null);
+  const { fitView: triggerFitView, zoomIn, zoomOut } = useReactFlow();
+  const [editMode, setEditMode] = useState(false);
+  const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [isReady, setIsReady] = useState(false);
 
-  // Transform backend graph data to ReactFlow format with error handling
+  // Transform backend graph data maintaining EXACT P&ID spatial relationships
   const { initialNodes, initialEdges } = useMemo(() => {
     try {
       // Validate graph data
@@ -36,105 +44,190 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ graphData }) => {
         console.warn('No edges found in graph data');
       }
 
+      console.log('=== GRAPH RENDERING ===');
+      console.log('Total nodes:', graphData.nodes.length);
+      console.log('Total edges:', graphData.edges.length);
+      
+      // Log first few nodes to see raw data
+      console.log('Sample raw nodes:', graphData.nodes.slice(0, 3));
+
+      // Extract valid coordinates
+      const coords = graphData.nodes
+        .filter(n => n.x !== undefined && n.y !== undefined && n.id)
+        .map(n => ({ x: n.x, y: n.y, id: n.id }));
+
+      if (coords.length === 0) {
+        throw new Error('No valid coordinates found in graph data');
+      }
+
+      // Calculate bounds with padding
+      const xValues = coords.map(c => c.x);
+      const yValues = coords.map(c => c.y);
+      
+      const minX = Math.min(...xValues);
+      const maxX = Math.max(...xValues);
+      const minY = Math.min(...yValues);
+      const maxY = Math.max(...yValues);
+      
+      const rangeX = maxX - minX || 1;
+      const rangeY = maxY - minY || 1;
+      
+      console.log('Original Bounds:', { minX, maxX, minY, maxY });
+      console.log('Original Ranges:', { rangeX, rangeY });
+
+      // Simple transformation: just normalize to start from (0,0)
+      // Don't scale - use coordinates as-is from backend
+      // Backend should be sending pixel coordinates from the original P&ID image
+      const positions = new Map<string, { x: number; y: number }>();
+      
+      coords.forEach(coord => {
+        // Simply shift coordinates to start from (0,0)
+        const finalX = coord.x - minX;
+        const finalY = coord.y - minY;
+        positions.set(coord.id, { x: finalX, y: finalY });
+      });
+      
+      console.log('Transformed coordinate range:', { 
+        x: `0 to ${rangeX.toFixed(1)}`,
+        y: `0 to ${rangeY.toFixed(1)}`
+      });
+      console.log('First 3 transformed positions:', 
+        Array.from(positions.entries()).slice(0, 3).map(([id, pos]) => 
+          `${id}: (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)})`
+        )
+      );
+      
+      // Warn if coordinates seem clustered
+      if (rangeX < 500 || rangeY < 500) {
+        console.warn('⚠️ WARNING: Coordinates appear clustered!');
+        console.warn(`   Range: ${rangeX.toFixed(1)} x ${rangeY.toFixed(1)} pixels`);
+        console.warn('   This indicates a backend detection issue.');
+        console.warn('   Nodes will appear clustered in the graph.');
+      }
+
+      // Create nodes with exact positions
       const nodes: Node[] = graphData.nodes
         .filter((node) => {
-          // Filter out invalid nodes
           if (!node.id) {
             console.warn('Skipping node without id:', node);
             return false;
           }
-          if (typeof node.x !== 'number' || typeof node.y !== 'number') {
-            console.warn('Skipping node with invalid coordinates:', node);
+          if (!positions.has(node.id)) {
+            console.warn('Skipping node without position:', node.id);
             return false;
           }
           return true;
         })
         .map((node) => {
+          const position = positions.get(node.id)!;
           const nodeType = getNodeType(node.type);
           const color = getNodeColor(node.type);
+          
+          const isCircle = nodeType.shape === 'default';
+          const nodeWidth = isCircle ? 60 : 100;
+          const nodeHeight = isCircle ? 60 : 50;
           
           return {
             id: node.id,
             type: nodeType.shape,
-            position: { 
-              x: Math.max(0, node.x * 2), // Scale up and ensure positive
-              y: Math.max(0, node.y * 2) 
+            position: {
+              x: position.x,
+              y: position.y
             },
             data: {
               label: node.tag || node.label || node.id,
               type: node.type,
             },
+            measured: {
+              width: nodeWidth,
+              height: nodeHeight,
+            },
+            width: nodeWidth,
+            height: nodeHeight,
             style: {
-              background: color,
-              color: '#0a0e14',
+              background: `linear-gradient(135deg, ${color} 0%, ${color}dd 100%)`,
+              color: '#ffffff',
               border: `2px solid ${color}`,
-              borderRadius: nodeType.shape === 'default' ? '50%' : '8px',
-              padding: 10,
-              fontSize: 12,
-              fontWeight: 'bold',
+              borderRadius: isCircle ? '50%' : '6px',
+              padding: 8,
+              fontSize: 9,
+              fontWeight: 600,
               fontFamily: 'monospace',
-              width: nodeType.shape === 'default' ? 80 : 120,
-              height: nodeType.shape === 'default' ? 80 : 60,
+              width: nodeWidth,
+              height: nodeHeight,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              boxShadow: `0 0 20px ${color}40`,
+              boxShadow: `0 2px 6px ${color}40`,
+              textAlign: 'center',
+              wordBreak: 'break-word',
+              cursor: 'pointer',
             },
           };
         });
 
+      console.log('Created nodes:', nodes.length);
+      console.log('First 3 node positions:', nodes.slice(0, 3).map(n => ({ 
+        id: n.id, 
+        x: n.position.x.toFixed(1), 
+        y: n.position.y.toFixed(1),
+        width: n.width,
+        height: n.height
+      })));
+
+      // Create edges
       const edges: Edge[] = (graphData.edges || [])
         .filter((edge) => {
-          // Filter out invalid edges
-          if (!edge.source || !edge.target) {
-            console.warn('Skipping edge without source/target:', edge);
-            return false;
-          }
-          // Check if source and target nodes exist
+          if (!edge.source || !edge.target) return false;
           const sourceExists = nodes.some(n => n.id === edge.source);
           const targetExists = nodes.some(n => n.id === edge.target);
-          if (!sourceExists || !targetExists) {
-            console.warn('Skipping edge with missing nodes:', edge);
-            return false;
-          }
-          return true;
+          return sourceExists && targetExists;
         })
-        .map((edge, index) => ({
-          id: `edge-${index}`,
-          source: edge.source,
-          target: edge.target,
-          type: ConnectionLineType.Bezier,
-          animated: edge.type === 'flow',
-          style: {
-            stroke: getEdgeColor(edge.type),
-            strokeWidth: 2,
-          },
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            color: getEdgeColor(edge.type),
-          },
-          label: edge.type,
-          labelStyle: {
-            fill: '#abb2bf',
-            fontSize: 10,
-            fontFamily: 'monospace',
-          },
-          labelBgStyle: {
-            fill: '#1a1f29',
-            fillOpacity: 0.8,
-          },
-        }));
+        .map((edge, index) => {
+          const edgeColor = getEdgeColor(edge.type);
+          
+          return {
+            id: `edge-${index}`,
+            source: edge.source,
+            target: edge.target,
+            type: ConnectionLineType.SmoothStep,
+            animated: edge.type === 'flow',
+            style: {
+              stroke: edgeColor,
+              strokeWidth: 2,
+            },
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+              color: edgeColor,
+              width: 20,
+              height: 20,
+            },
+            label: edge.type,
+            labelStyle: {
+              fill: '#abb2bf',
+              fontSize: 10,
+              fontWeight: 600,
+              fontFamily: 'monospace',
+            },
+            labelBgStyle: {
+              fill: '#1a1f29',
+              fillOpacity: 0.9,
+            },
+          };
+        });
 
-      // Check if we have valid data
+      console.log('Created edges:', edges.length);
+      console.log('=== GRAPH RENDERING COMPLETE ===');
+
       if (nodes.length === 0) {
-        throw new Error('No valid nodes found in graph data');
+        throw new Error('No valid nodes found');
       }
 
       setError(null);
       return { initialNodes: nodes, initialEdges: edges };
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
-      console.error('Error processing graph data:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      console.error('Error processing graph:', err);
       setError(errorMessage);
       return { initialNodes: [], initialEdges: [] };
     }
@@ -142,6 +235,63 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ graphData }) => {
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+
+  // Update nodes when initialNodes change
+  useEffect(() => {
+    console.log('=== UPDATING NODES ===');
+    console.log('Setting', initialNodes.length, 'nodes');
+    console.log('Sample node structure:', initialNodes[0]);
+    console.log('All node positions:', initialNodes.map(n => ({
+      id: n.id,
+      x: n.position.x,
+      y: n.position.y,
+      width: n.width,
+      height: n.height
+    })).slice(0, 5));
+    setNodes(initialNodes);
+    setIsReady(false);
+  }, [initialNodes, setNodes]);
+
+  // Update edges when initialEdges change
+  useEffect(() => {
+    setEdges(initialEdges);
+  }, [initialEdges, setEdges]);
+
+  // Robust auto-fit: wait for ReactFlow to be fully initialized
+  useEffect(() => {
+    if (nodes.length === 0) return;
+    
+    setIsInitializing(true);
+    
+    // Use requestAnimationFrame to ensure DOM is ready
+    const fitGraph = () => {
+      requestAnimationFrame(() => {
+        triggerFitView({ 
+          padding: 0.2,
+          duration: 0,
+          minZoom: 0.1,
+          maxZoom: 1.0,
+        });
+        
+        // Second fit after a delay to ensure all nodes are rendered
+        setTimeout(() => {
+          triggerFitView({ 
+            padding: 0.2,
+            duration: 400,
+            minZoom: 0.1,
+            maxZoom: 1.0,
+          });
+          setIsInitializing(false);
+          setIsReady(true);
+        }, 300);
+      });
+    };
+    
+    // Small delay to let ReactFlow initialize
+    const timer = setTimeout(fitGraph, 100);
+    
+    return () => clearTimeout(timer);
+  }, [nodes.length, triggerFitView]);
 
   // Handle node click
   const onNodeClick = useCallback(
@@ -151,58 +301,99 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ graphData }) => {
     [setSelectedNodeId]
   );
 
+  // Handle edge click
+  const onEdgeClick = useCallback(
+    (_: React.MouseEvent, edge: Edge) => {
+      if (editMode) {
+        setSelectedEdge(edge.id);
+      }
+    },
+    [editMode]
+  );
+
+  // Handle fit view
+  const handleFitView = useCallback(() => {
+    triggerFitView({ 
+      padding: 0.2, 
+      duration: 400,
+      minZoom: 0.1,
+      maxZoom: 1.0,
+    });
+  }, [triggerFitView]);
+
+  // Delete node
+  const handleDeleteNode = useCallback(() => {
+    if (selectedNodeId) {
+      setNodes((nds) => nds.filter((n) => n.id !== selectedNodeId));
+      setEdges((eds) => eds.filter((e) => e.source !== selectedNodeId && e.target !== selectedNodeId));
+      setSelectedNodeId(null);
+    }
+  }, [selectedNodeId, setNodes, setEdges, setSelectedNodeId]);
+
+  // Delete edge
+  const handleDeleteEdge = useCallback(() => {
+    if (selectedEdge) {
+      setEdges((eds) => eds.filter((e) => e.id !== selectedEdge));
+      setSelectedEdge(null);
+    }
+  }, [selectedEdge, setEdges]);
+
   // Highlight selected node
-  React.useEffect(() => {
+  useEffect(() => {
     if (nodes.length === 0) return;
     
     setNodes((nds) =>
       nds.map((node) => {
-        const borderColor = node.style?.border?.split(' ')[2] || '#61afef';
+        const border = node.style?.border;
+        const borderColor = typeof border === 'string' ? border.split(' ')[2] : '#61afef';
+        const isSelected = selectedNodeId === node.id;
+        
         return {
           ...node,
           style: {
             ...node.style,
-            boxShadow:
-              selectedNodeId === node.id
-                ? `0 0 30px ${borderColor}`
-                : `0 0 20px ${borderColor}40`,
-            transform: selectedNodeId === node.id ? 'scale(1.1)' : 'scale(1)',
-            transition: 'all 0.3s ease',
+            // Only update boxShadow and zIndex
+            // ❌ DO NOT USE 'transform' or 'transition' HERE
+            // It overrides React Flow's internal position translates!
+            boxShadow: isSelected
+              ? `0 0 20px ${borderColor}, 0 0 40px ${borderColor}80`
+              : `0 2px 6px ${borderColor}40`,
+            zIndex: isSelected ? 1000 : 1,
           },
         };
       })
     );
   }, [selectedNodeId, setNodes, nodes.length]);
 
-  // Show error state
+  // Error state
   if (error) {
     return (
-      <div className="w-full h-full bg-industrial-900 rounded-lg overflow-hidden border border-industrial-600 flex items-center justify-center">
+      <div className="w-full h-full bg-industrial-900 rounded-lg border border-industrial-600 flex items-center justify-center">
         <div className="text-center p-8">
           <AlertCircle className="w-16 h-16 text-accent-red mx-auto mb-4" />
           <h3 className="text-lg font-semibold text-industrial-200 mb-2">
-            Graph Visualization Error
+            Graph Error
           </h3>
           <p className="text-sm text-industrial-400 mb-4">{error}</p>
           <p className="text-xs text-industrial-500">
-            Please process a P&ID image first to generate graph data.
+            Please process a P&ID image first.
           </p>
         </div>
       </div>
     );
   }
 
-  // Show empty state
+  // Empty state
   if (initialNodes.length === 0) {
     return (
-      <div className="w-full h-full bg-industrial-900 rounded-lg overflow-hidden border border-industrial-600 flex items-center justify-center">
+      <div className="w-full h-full bg-industrial-900 rounded-lg border border-industrial-600 flex items-center justify-center">
         <div className="text-center p-8">
           <AlertCircle className="w-16 h-16 text-industrial-400 mx-auto mb-4" />
           <h3 className="text-lg font-semibold text-industrial-200 mb-2">
-            No Graph Data Available
+            No Graph Data
           </h3>
           <p className="text-sm text-industrial-400">
-            Upload and process a P&ID image to view the topology graph.
+            Upload and process a P&ID image to view the graph.
           </p>
         </div>
       </div>
@@ -210,56 +401,171 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ graphData }) => {
   }
 
   return (
-    <div className="w-full h-full bg-industrial-900 rounded-lg overflow-hidden border border-industrial-600">
+    <div className="w-full h-full bg-industrial-900 rounded-lg border border-industrial-600 relative">
+      {/* Loading Overlay */}
+      {isInitializing && (
+        <div className="absolute inset-0 bg-industrial-950/80 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="text-center">
+            <div className="w-12 h-12 border-4 border-accent-blue border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+            <p className="text-industrial-300 text-sm font-mono">Fitting graph to view...</p>
+          </div>
+        </div>
+      )}
+      
       <ReactFlow
         nodes={nodes}
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={onNodeClick}
+        onEdgeClick={onEdgeClick}
+        nodesDraggable={true}
+        nodesConnectable={editMode}
+        elementsSelectable={true}
         fitView
+        fitViewOptions={{
+          padding: 0.2,
+          includeHiddenNodes: false,
+          minZoom: 0.1,
+          maxZoom: 1.0,
+        }}
+        minZoom={0.05}
+        maxZoom={2}
+        defaultViewport={{ x: 0, y: 0, zoom: 0.5 }}
         attributionPosition="bottom-left"
         className="bg-industrial-950"
+        proOptions={{ hideAttribution: true }}
       >
-        <Background color="#3d4556" gap={16} />
+        <Background color="#3d4556" gap={16} size={1} />
+        
         <Controls
-          className="bg-industrial-800 border border-industrial-600 rounded-lg"
-          style={{
-            button: {
-              backgroundColor: '#1a1f29',
-              color: '#abb2bf',
-              borderBottom: '1px solid #3d4556',
-            },
-          }}
+          className="bg-industrial-800/90 border border-industrial-600 rounded-lg"
+          position="top-left"
+          showInteractive={false}
         />
+        
         <MiniMap
+          key={`minimap-${nodes.length}`}
           nodeColor={(node) => {
-            const borderColor = node.style?.border?.split(' ')[2];
+            const border = node.style?.border;
+            const borderColor = typeof border === 'string' ? border.split(' ')[2] : '#61afef';
             return borderColor || '#61afef';
           }}
-          className="bg-industrial-800 border border-industrial-600 rounded-lg"
-          maskColor="rgba(10, 14, 20, 0.8)"
+          nodeStrokeWidth={3}
+          nodeStrokeColor="#ffffff"
+          nodeBorderRadius={2}
+          className="bg-industrial-800/90 border border-industrial-600 rounded-lg"
+          maskColor="rgba(10, 14, 20, 0.6)"
+          position="bottom-right"
+          pannable
+          zoomable
+          style={{ width: 200, height: 150 }}
         />
-      </ReactFlow>
 
-      {/* Legend */}
-      <div className="absolute top-4 right-4 bg-industrial-800/95 backdrop-blur-sm rounded-lg p-4 border border-industrial-600 max-w-xs">
-        <h3 className="text-sm font-bold text-industrial-200 mb-3 font-mono">
-          Graph Legend
-        </h3>
-        <div className="space-y-2 text-xs">
-          <LegendItem color="#61afef" shape="circle" label="Instruments" />
-          <LegendItem color="#56b6c2" shape="circle" label="Valves" />
-          <LegendItem color="#98c379" shape="square" label="Equipment" />
-          <LegendItem color="#e5c07b" shape="square" label="Pumps" />
-          <LegendItem color="#c678dd" shape="square" label="Other" />
-        </div>
-        <div className="mt-4 pt-3 border-t border-industrial-600 space-y-1 text-xs text-industrial-400">
-          <div>🖱️ Drag nodes to rearrange</div>
-          <div>🔍 Scroll to zoom</div>
-          <div>📍 Click node to select</div>
-        </div>
-      </div>
+        {/* Top Right Panel */}
+        <Panel position="top-right" className="space-y-2">
+          {/* Edit Mode */}
+          <div className="bg-industrial-800/95 backdrop-blur-sm rounded-lg border border-industrial-600 shadow-xl p-3">
+            <h3 className="text-xs font-bold text-industrial-200 mb-2 font-mono">
+              Edit Mode
+            </h3>
+            <button
+              onClick={() => setEditMode(!editMode)}
+              className={`w-full px-3 py-2 text-xs rounded transition-colors font-semibold ${
+                editMode
+                  ? 'bg-accent-green text-industrial-950'
+                  : 'bg-industrial-700 text-industrial-300 hover:bg-industrial-600'
+              }`}
+            >
+              {editMode ? '✓ Editing' : 'Enable Edit'}
+            </button>
+            {editMode && (
+              <div className="mt-2 space-y-1">
+                <button
+                  onClick={handleDeleteNode}
+                  disabled={!selectedNodeId}
+                  className="w-full px-2 py-1.5 text-xs rounded bg-accent-red hover:bg-accent-red/80 disabled:bg-industrial-700 disabled:text-industrial-500 text-industrial-950 font-semibold transition-colors"
+                >
+                  Delete Node
+                </button>
+                <button
+                  onClick={handleDeleteEdge}
+                  disabled={!selectedEdge}
+                  className="w-full px-2 py-1.5 text-xs rounded bg-accent-red hover:bg-accent-red/80 disabled:bg-industrial-700 disabled:text-industrial-500 text-industrial-950 font-semibold transition-colors"
+                >
+                  Delete Edge
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Zoom Controls */}
+          <div className="bg-industrial-800/95 backdrop-blur-sm rounded-lg border border-industrial-600 shadow-xl">
+            <button
+              onClick={() => zoomIn({ duration: 200 })}
+              className="w-full px-3 py-2 hover:bg-industrial-700 transition-colors border-b border-industrial-600"
+              title="Zoom In"
+            >
+              <ZoomIn className="w-4 h-4 text-industrial-300 mx-auto" />
+            </button>
+            <button
+              onClick={() => zoomOut({ duration: 200 })}
+              className="w-full px-3 py-2 hover:bg-industrial-700 transition-colors border-b border-industrial-600"
+              title="Zoom Out"
+            >
+              <ZoomOut className="w-4 h-4 text-industrial-300 mx-auto" />
+            </button>
+            <button
+              onClick={handleFitView}
+              className="w-full px-3 py-2 hover:bg-industrial-700 transition-colors"
+              title="Fit View"
+            >
+              <Maximize2 className="w-4 h-4 text-industrial-300 mx-auto" />
+            </button>
+          </div>
+
+          {/* Stats */}
+          <div className="bg-industrial-800/95 backdrop-blur-sm rounded-lg p-3 border border-industrial-600 shadow-xl max-w-xs">
+            <h3 className="text-xs font-bold text-industrial-200 mb-2 font-mono">
+              Graph Stats
+            </h3>
+            <div className="text-xs space-y-1">
+              <div className="flex justify-between gap-3">
+                <span className="text-industrial-400">Nodes:</span>
+                <span className="text-industrial-200 font-mono font-semibold">{nodes.length}</span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-industrial-400">Edges:</span>
+                <span className="text-industrial-200 font-mono font-semibold">{edges.length}</span>
+              </div>
+              {isReady && (
+                <div className="pt-1 border-t border-industrial-700">
+                  <span className="text-accent-green text-xs">✓ Ready</span>
+                  <div className="mt-1 text-[10px] text-industrial-500">
+                    Check browser console for coordinate details
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </Panel>
+
+        {/* Bottom Left Panel - Legend */}
+        <Panel position="bottom-left" className="mb-2 ml-2">
+          <div className="bg-industrial-800/95 backdrop-blur-sm rounded-lg p-3 border border-industrial-600 shadow-xl">
+            <h3 className="text-xs font-bold text-industrial-200 mb-2 font-mono">
+              Legend
+            </h3>
+            <div className="space-y-1.5 text-xs">
+              <LegendItem color="#61afef" shape="circle" label="Instruments" />
+              <LegendItem color="#56b6c2" shape="circle" label="Valves" />
+              <LegendItem color="#98c379" shape="square" label="Equipment" />
+              <LegendItem color="#e5c07b" shape="square" label="Pumps" />
+              <LegendItem color="#c678dd" shape="square" label="Other" />
+            </div>
+          </div>
+        </Panel>
+      </ReactFlow>
     </div>
   );
 };
@@ -272,12 +578,12 @@ const LegendItem: React.FC<{
 }> = ({ color, shape, label }) => (
   <div className="flex items-center gap-2">
     <div
-      className={`w-4 h-4 border-2 ${
+      className={`w-3 h-3 border-2 ${
         shape === 'circle' ? 'rounded-full' : 'rounded'
       }`}
       style={{ borderColor: color, backgroundColor: `${color}40` }}
     />
-    <span className="text-industrial-300 font-mono">{label}</span>
+    <span className="text-industrial-300 font-mono text-xs">{label}</span>
   </div>
 );
 
@@ -285,17 +591,19 @@ const LegendItem: React.FC<{
 const getNodeType = (
   type: string
 ): { shape: 'default' | 'input' | 'output' } => {
-  if (type.includes('instrument') || type.includes('valve')) {
+  const lowerType = type.toLowerCase();
+  if (lowerType.includes('instrument') || lowerType.includes('valve')) {
     return { shape: 'default' }; // Circle
   }
   return { shape: 'input' }; // Rectangle
 };
 
 const getNodeColor = (type: string): string => {
-  if (type.includes('instrument')) return '#61afef';
-  if (type.includes('valve')) return '#56b6c2';
-  if (type.includes('equipment')) return '#98c379';
-  if (type.includes('pump')) return '#e5c07b';
+  const lowerType = type.toLowerCase();
+  if (lowerType.includes('instrument')) return '#61afef';
+  if (lowerType.includes('valve')) return '#56b6c2';
+  if (lowerType.includes('equipment')) return '#98c379';
+  if (lowerType.includes('pump')) return '#e5c07b';
   return '#c678dd';
 };
 

@@ -1,5 +1,4 @@
-// Design Rules Dashboard - Automated Quality Control
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Shield, AlertCircle, AlertTriangle, Info, Filter, Download } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
@@ -25,7 +24,9 @@ export const DesignRulesDashboard: React.FC = () => {
       const response = await axios.get('/api/design-rules/check');
       return response.data;
     },
+    retry: false,
     refetchInterval: false,
+    enabled: true, // Always try to fetch, but handle errors gracefully
   });
 
   const violations: RuleViolation[] = data?.violations || [];
@@ -34,10 +35,21 @@ export const DesignRulesDashboard: React.FC = () => {
   );
 
   const handleViewViolation = (violation: RuleViolation) => {
-    if (violation.location) {
-      // Find node at this location and zoom to it
-      // This would require mapping location to node ID
-      setActiveView('canvas');
+    // Navigate to canvas view
+    setActiveView('canvas');
+    
+    // If there are affected items, select the first one
+    if (violation.affected_items.length > 0) {
+      const firstItem = violation.affected_items[0];
+      // Try to find matching node ID from the item name
+      // Items are typically in format like "FT-101" or "node_5"
+      if (firstItem.startsWith('node_')) {
+        setSelectedNodeId(firstItem);
+      } else {
+        // Search for node by tag name
+        // This will highlight it in the canvas
+        setSelectedNodeId(firstItem);
+      }
     }
   };
 

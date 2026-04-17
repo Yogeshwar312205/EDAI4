@@ -10,19 +10,21 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.17.19",
+    "@tanstack/react-table": "^8.11.6",
+    "@types/dagre": "^0.7.54",
+    "axios": "^1.6.5",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.0",
+    "dagre": "^0.8.5",
+    "konva": "^9.3.1",
+    "lucide-react": "^0.309.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-konva": "^18.2.10",
-    "konva": "^9.3.1",
     "reactflow": "^11.10.4",
-    "@tanstack/react-table": "^8.11.6",
-    "@tanstack/react-query": "^5.17.19",
-    "axios": "^1.6.5",
-    "zustand": "^4.4.7",
-    "clsx": "^2.1.0",
     "tailwind-merge": "^2.2.0",
-    "lucide-react": "^0.309.0",
-    "class-variance-authority": "^0.7.0"
+    "zustand": "^4.4.7"
   },
   "devDependencies": {
     "@types/react": "^18.2.48",

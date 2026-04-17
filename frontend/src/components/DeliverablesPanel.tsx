@@ -1,6 +1,6 @@
 // Deliverables Panel - Generate Professional Excel Reports
 import React, { useState } from 'react';
-import { FileText, Download, Loader2, CheckCircle, FileSpreadsheet } from 'lucide-react';
+import { FileText, Loader2, CheckCircle, FileSpreadsheet } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import axios from 'axios';
 
