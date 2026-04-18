@@ -31,6 +31,14 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ graphData }) => {
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
   const [isReady, setIsReady] = useState(false);
+  
+  // Smart OCR Tag Explainer state
+  const [tagAnalysis, setTagAnalysis] = useState<{
+    tag: string;
+    definition: string;
+  } | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   // Transform backend graph data maintaining EXACT P&ID spatial relationships
   const { initialNodes, initialEdges } = useMemo(() => {
@@ -295,11 +303,62 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ graphData }) => {
 
   // Handle node click
   const onNodeClick = useCallback(
-    (_: React.MouseEvent, node: Node) => {
+    async (_: React.MouseEvent, node: Node) => {
       setSelectedNodeId(node.id);
+      
+      // If it's an instrument node, trigger AI analysis
+      if (node.data.type?.toLowerCase().includes('instrument')) {
+        // Get the actual tag from the label, or use node ID if label is generic
+        const tagLabel = node.data.label;
+        
+        // Skip analysis if label is just the class name
+        if (tagLabel && !tagLabel.includes('.') && tagLabel !== 'UNTAGGED') {
+          await analyzeTag(tagLabel);
+        } else {
+          // Show message that tag is not available
+          setTagAnalysis({
+            tag: node.id,
+            definition: "No instrument tag found. This node needs to be tagged with an ISA instrument identifier (e.g., FIC-101, PT-205)."
+          });
+        }
+      } else {
+        // Clear analysis for non-instrument nodes
+        setTagAnalysis(null);
+        setAnalysisError(null);
+      }
     },
     [setSelectedNodeId]
   );
+  
+  // Analyze tag using Gemini AI
+  const analyzeTag = async (tagLabel: string) => {
+    setIsAnalyzing(true);
+    setAnalysisError(null);
+    setTagAnalysis(null);
+    
+    try {
+      // Create form data (mocking image upload for now)
+      const formData = new FormData();
+      formData.append('tag_text', tagLabel);
+      
+      const response = await fetch('/api/api/analyze-tag', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API error: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      setTagAnalysis(data);
+    } catch (error) {
+      console.error('Error analyzing tag:', error);
+      setAnalysisError(error instanceof Error ? error.message : 'Failed to analyze tag');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
 
   // Handle edge click
   const onEdgeClick = useCallback(
@@ -548,6 +607,53 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ graphData }) => {
               )}
             </div>
           </div>
+
+          {/* Smart OCR Tag Explainer */}
+          {selectedNodeId && (
+            <div className="bg-industrial-800/95 backdrop-blur-sm rounded-lg p-3 border border-industrial-600 shadow-xl max-w-xs">
+              <h3 className="text-xs font-bold text-industrial-200 mb-2 font-mono flex items-center gap-2">
+                <span className="text-accent-blue">🤖</span>
+                AI Tag Explainer
+              </h3>
+              
+              {isAnalyzing ? (
+                <div className="flex flex-col items-center justify-center py-4">
+                  <div className="w-8 h-8 border-3 border-accent-blue border-t-transparent rounded-full animate-spin mb-2" />
+                  <p className="text-xs text-industrial-400">Analyzing tag...</p>
+                </div>
+              ) : analysisError ? (
+                <div className="text-xs text-accent-red bg-accent-red/10 rounded p-2">
+                  <p className="font-semibold mb-1">⚠️ API Error</p>
+                  <p className="text-[10px]">{analysisError}</p>
+                </div>
+              ) : tagAnalysis ? (
+                <div className="space-y-2">
+                  <div className="bg-industrial-900/50 rounded p-2">
+                    <p className="text-[10px] text-industrial-400 mb-1">Tag</p>
+                    <p className="text-sm font-bold text-accent-blue font-mono break-all">
+                      {tagAnalysis.tag}
+                    </p>
+                  </div>
+                  <div className="bg-industrial-900/50 rounded p-2">
+                    <p className="text-[10px] text-industrial-400 mb-1">Definition</p>
+                    <p className="text-xs text-industrial-200 leading-relaxed">
+                      {tagAnalysis.definition}
+                    </p>
+                  </div>
+                  {tagAnalysis.definition.includes('⚠️') && (
+                    <div className="text-[10px] text-accent-yellow bg-accent-yellow/10 rounded p-2 mt-2">
+                      <p className="font-semibold">💡 Tip</p>
+                      <p>This node needs proper ISA tag extraction from the P&ID image.</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-xs text-industrial-400 text-center py-3">
+                  Click an instrument node to analyze its tag
+                </div>
+              )}
+            </div>
+          )}
         </Panel>
 
         {/* Bottom Left Panel - Legend */}

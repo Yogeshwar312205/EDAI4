@@ -29,6 +29,8 @@ import uvicorn
 logger = logging.getLogger(__name__)
 
 # EDAI4 imports will be done lazily to avoid import errors if deps missing
+# Gemini analyzer import
+from src.api.gemini_analyzer import get_analyzer
 
 
 # =============================================================================
@@ -1035,6 +1037,44 @@ async def get_graph():
 # =============================================================================
 # Advanced Features Endpoints
 # =============================================================================
+
+@app.post("/api/analyze-tag")
+async def analyze_tag(
+    file: Optional[UploadFile] = File(None),
+    tag_text: Optional[str] = Form(None)
+):
+    """
+    Analyze P&ID instrument tag using Gemini AI
+    
+    Args:
+        file: Optional uploaded image of instrument bubble
+        tag_text: Optional tag text (used if no image provided)
+        
+    Returns:
+        JSON with 'tag' and 'definition' keys
+    """
+    try:
+        analyzer = get_analyzer()
+        
+        # If image provided, analyze from image
+        if file:
+            logger.info(f"Analyzing tag from image: {file.filename}")
+            result = await analyzer.analyze_tag_from_image(file)
+        # Otherwise, analyze from text
+        elif tag_text:
+            logger.info(f"Analyzing tag from text: {tag_text}")
+            result = analyzer.analyze_tag_from_text(tag_text)
+        else:
+            raise HTTPException(400, "Either 'file' or 'tag_text' must be provided")
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in analyze_tag endpoint: {e}")
+        raise HTTPException(500, f"Failed to analyze tag: {str(e)}")
+
 
 @app.post("/deliverables/generate")
 async def generate_deliverables(
