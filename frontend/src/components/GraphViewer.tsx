@@ -18,6 +18,7 @@ import 'reactflow/dist/style.css';
 import { useAppStore } from '@/store/useAppStore';
 import type { GraphData } from '@/types/api';
 import { AlertCircle, Maximize2, ZoomIn, ZoomOut } from 'lucide-react';
+import { ChatPanel } from './ChatPanel';
 
 interface GraphViewerProps {
   graphData: GraphData;
@@ -671,6 +672,9 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ graphData }) => {
             </div>
           </div>
         </Panel>
+
+        {/* Engineering Q&A Assistant */}
+        <ChatPanel nodes={nodes} edges={edges} />
       </ReactFlow>
     </div>
   );

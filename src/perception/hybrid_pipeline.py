@@ -997,21 +997,40 @@ class PaddleOCREngine:
     
     def _extract_paddle(self, image: np.ndarray) -> List[OCRText]:
         """Safely extract text - handles PaddleOCR v2.x AND v3.x/PaddleX formats."""
+        import time
+        start_time = time.time()
+        
         h, w = image.shape[:2]
-        print(f"[OCR] Processing {w}x{h} image at original resolution (fast mode)")
+        
+        # OPTIMIZATION: Resize large images for faster OCR
+        max_dimension = 1920  # Optimal for P&ID text detection
+        scale_factor = 1.0
+        
+        if max(h, w) > max_dimension:
+            scale_factor = max_dimension / max(h, w)
+            new_w = int(w * scale_factor)
+            new_h = int(h * scale_factor)
+            import cv2
+            image = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            print(f"[OCR] Resized from {w}x{h} to {new_w}x{new_h} for faster processing")
+            h, w = new_h, new_w
+        else:
+            print(f"[OCR] Processing {w}x{h} image (fast mode)")
         
         # 1. Run OCR safely - try both APIs (v3/PaddleX uses predict, v2 uses ocr)
         raw_results = None
         try:
             # Try .ocr() first (PaddleOCR v2.x style)
             raw_results = self._ocr.ocr(image) 
-            print("[OCR] ✓ PaddleOCR completed (ocr API)")
+            elapsed = (time.time() - start_time) * 1000
+            print(f"[OCR] ✓ PaddleOCR completed in {elapsed:.0f}ms (ocr API)")
         except Exception as e:
             print(f"[OCR DEBUG] ocr() API failed: {e}, trying predict()...")
             try:
                 # Try .predict() (PaddleX/v3 style)
                 raw_results = self._ocr.predict(image)
-                print("[OCR] ✓ PaddleOCR completed (predict API)")
+                elapsed = (time.time() - start_time) * 1000
+                print(f"[OCR] ✓ PaddleOCR completed in {elapsed:.0f}ms (predict API)")
             except Exception as e2:
                 print(f"[OCR] ✗ PaddleOCR failed with both APIs: ocr={e}, predict={e2}")
                 return []

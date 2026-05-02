@@ -79,6 +79,25 @@ class HealthResponse(BaseModel):
     timestamp: str
 
 
+class GraphTopology(BaseModel):
+    """Graph topology for Q&A."""
+    nodes: List[Dict[str, Any]]
+    edges: List[Dict[str, Any]]
+
+
+class PIDQuestionRequest(BaseModel):
+    """P&ID Q&A request."""
+    question: str
+    topology: GraphTopology
+
+
+class PIDQuestionResponse(BaseModel):
+    """P&ID Q&A response."""
+    answer: str
+    question: str
+    timestamp: str
+
+
 # =============================================================================
 # FastAPI App
 # =============================================================================
@@ -500,22 +519,77 @@ async def process_image(file: UploadFile = File(...)):
         h, w = image.shape[:2]
         print(f"Image size: {w}x{h}")
         
+        # Helper function to validate and clamp bounding boxes
+        def validate_bbox(bbox_dict, img_width, img_height, min_size=10):
+            """
+            Validate and clamp bounding box coordinates to image dimensions.
+            Returns None if bbox is invalid (outside image or too small).
+            """
+            x1 = max(0, min(bbox_dict["x1"], img_width))
+            y1 = max(0, min(bbox_dict["y1"], img_height))
+            x2 = max(0, min(bbox_dict["x2"], img_width))
+            y2 = max(0, min(bbox_dict["y2"], img_height))
+            
+            # Check if bbox is valid
+            width = x2 - x1
+            height = y2 - y1
+            
+            # Filter out invalid boxes
+            if width < min_size or height < min_size:
+                return None
+            
+            # Filter out boxes that are mostly outside the image
+            if x1 >= img_width * 0.95 or y1 >= img_height * 0.95:
+                return None
+            
+            # Filter out boxes with invalid coordinates
+            if x1 >= x2 or y1 >= y2:
+                return None
+            
+            return {"x1": float(x1), "y1": float(y1), "x2": float(x2), "y2": float(y2)}
+        
+        # Helper function to check if bbox is in valid content area
+        def is_in_content_area(bbox_dict, img_width, img_height):
+            """
+            Check if bounding box is in a valid content area (not in margins/blank areas).
+            """
+            x1, y1, x2, y2 = bbox_dict["x1"], bbox_dict["y1"], bbox_dict["x2"], bbox_dict["y2"]
+            
+            # Calculate center
+            cx = (x1 + x2) / 2
+            cy = (y1 + y2) / 2
+            
+            # Check if center is within reasonable bounds (not in extreme margins)
+            margin_x = img_width * 0.05  # 5% margin
+            margin_y = img_height * 0.05
+            
+            if cx < margin_x or cx > img_width - margin_x:
+                return False
+            if cy < margin_y or cy > img_height - margin_y:
+                return False
+            
+            return True
+        
         # Priority 1: Hybrid Pipeline (YOLO + HoughCircles + ISA Regex)
         if state.hybrid_pipeline:
             print("[API] Using Hybrid Pipeline (YOLO + HoughCircles + ISA Regex)")
             result = state.hybrid_pipeline.process(image)
             
-            # Convert hybrid results to API format
+            # Convert hybrid results to API format with validation
             for node in result.nodes:
-                detections.append(DetectionResult(
-                    class_name=node.class_name,
-                    confidence=node.confidence,
-                    bbox={"x1": node.x1, "y1": node.y1, "x2": node.x2, "y2": node.y2},
-                    tag=node.tag,
-                ))
+                bbox_dict = {"x1": node.x1, "y1": node.y1, "x2": node.x2, "y2": node.y2}
+                validated_bbox = validate_bbox(bbox_dict, w, h)
+                
+                if validated_bbox and is_in_content_area(validated_bbox, w, h):
+                    detections.append(DetectionResult(
+                        class_name=node.class_name,
+                        confidence=node.confidence,
+                        bbox=validated_bbox,
+                        tag=node.tag,
+                    ))
             
             instruments_count = result.stats.get("instruments", 0)
-            nodes_count = len(result.nodes)
+            nodes_count = len(detections)  # Use filtered count
             
             # BUILD GRAPH FROM HYBRID RESULTS
             if state.graph_builder:
@@ -698,17 +772,21 @@ async def process_image(file: UploadFile = File(...)):
             print("[API] Using High-Density Pipeline (SAHI + PaddleOCR)")
             result = state.high_density_pipeline.process(image)
             
-            # Convert high-density results to API format
+            # Convert high-density results to API format with validation
             for idx, symbol in enumerate(result.symbols):
-                detections.append(DetectionResult(
-                    class_name=symbol.class_name,
-                    confidence=symbol.confidence,
-                    bbox={"x1": symbol.x1, "y1": symbol.y1, "x2": symbol.x2, "y2": symbol.y2},
-                    tag=symbol.tag,
-                ))
+                bbox_dict = {"x1": symbol.x1, "y1": symbol.y1, "x2": symbol.x2, "y2": symbol.y2}
+                validated_bbox = validate_bbox(bbox_dict, w, h)
+                
+                if validated_bbox and is_in_content_area(validated_bbox, w, h):
+                    detections.append(DetectionResult(
+                        class_name=symbol.class_name,
+                        confidence=symbol.confidence,
+                        bbox=validated_bbox,
+                        tag=symbol.tag,
+                    ))
             
             instruments_count = len(result.associated_tags)
-            nodes_count = len(result.symbols)
+            nodes_count = len(detections)  # Use filtered count
             
             graph_summary = {
                 "mode": "high_density",
@@ -727,19 +805,34 @@ async def process_image(file: UploadFile = File(...)):
             print("[API] Using SAHI Pipeline for processing")
             result = state.sahi_pipeline.process(image)
             
-            # Convert SAHI detections to API format
+            # Convert SAHI detections to API format with validation
             for det in result['detections']:
-                detections.append(DetectionResult(
-                    class_name=det.class_name,
-                    confidence=det.confidence,
-                    bbox={"x1": det.x1, "y1": det.y1, "x2": det.x2, "y2": det.y2},
-                    tag=None,
-                ))
+                bbox_dict = {"x1": det.x1, "y1": det.y1, "x2": det.x2, "y2": det.y2}
+                validated_bbox = validate_bbox(bbox_dict, w, h)
+                
+                if validated_bbox and is_in_content_area(validated_bbox, w, h):
+                    detections.append(DetectionResult(
+                        class_name=det.class_name,
+                        confidence=det.confidence,
+                        bbox=validated_bbox,
+                        tag=None,
+                    ))
             
-            # Add instrument detections from ISA tags
+            # Add instrument detections from ISA tags with validation
             for inst in result['instruments']:
                 cx, cy = inst['center']
                 radius = 25  # Typical instrument bubble size
+                
+                bbox_dict = {
+                    "x1": float(cx - radius),
+                    "y1": float(cy - radius),
+                    "x2": float(cx + radius),
+                    "y2": float(cy + radius),
+                }
+                
+                validated_bbox = validate_bbox(bbox_dict, w, h)
+                if not validated_bbox or not is_in_content_area(validated_bbox, w, h):
+                    continue
                 
                 # Check if already detected
                 is_duplicate = False
@@ -755,12 +848,7 @@ async def process_image(file: UploadFile = File(...)):
                     detections.append(DetectionResult(
                         class_name="instrument.bubble",
                         confidence=inst['confidence'],
-                        bbox={
-                            "x1": float(cx - radius),
-                            "y1": float(cy - radius),
-                            "x2": float(cx + radius),
-                            "y2": float(cy + radius),
-                        },
+                        bbox=validated_bbox,
                         tag=inst['tag'],
                     ))
             
@@ -783,7 +871,7 @@ async def process_image(file: UploadFile = File(...)):
             
             instruments_count = len(result.instruments)
             
-            # Build detections list - include all detected objects
+            # Build detections list - include all detected objects with validation
             all_items = (
                 list(result.instruments) + 
                 list(result.equipment) + 
@@ -794,17 +882,23 @@ async def process_image(file: UploadFile = File(...)):
             for inst in all_items:
                 # bbox is a tuple (x1, y1, x2, y2)
                 bbox_coords = inst.bbox if isinstance(inst.bbox, tuple) and len(inst.bbox) == 4 else (0, 0, 0, 0)
+                bbox_dict = {
+                    "x1": bbox_coords[0],
+                    "y1": bbox_coords[1],
+                    "x2": bbox_coords[2],
+                    "y2": bbox_coords[3],
+                }
+                
+                validated_bbox = validate_bbox(bbox_dict, w, h)
+                if not validated_bbox or not is_in_content_area(validated_bbox, w, h):
+                    continue
+                
                 # Use detection_confidence if confidence is 0 (for unidentified symbols)
                 conf = inst.confidence if inst.confidence > 0 else inst.detection_confidence
                 detections.append(DetectionResult(
                     class_name=inst.symbol_class,
                     confidence=conf,
-                    bbox={
-                        "x1": bbox_coords[0],
-                        "y1": bbox_coords[1],
-                        "x2": bbox_coords[2],
-                        "y2": bbox_coords[3],
-                    },
+                    bbox=validated_bbox,
                     tag=inst.tag_number if inst.tag_number != "UNTAGGED" else None,
                 ))
             
@@ -841,6 +935,18 @@ async def process_image(file: UploadFile = File(...)):
                 if isa_pattern.match(tag_text) or len(tag_text) >= 2 and tag_text[:2] in ['FT', 'PT', 'LT', 'TT', 'AT', 'FC', 'PC', 'LC', 'TC', 'FI', 'PI', 'LI', 'TI']:
                     tx, ty = txt_info['center']
                     
+                    radius = 25
+                    bbox_dict = {
+                        "x1": float(tx - radius),
+                        "y1": float(ty - radius),
+                        "x2": float(tx + radius),
+                        "y2": float(ty + radius),
+                    }
+                    
+                    validated_bbox = validate_bbox(bbox_dict, w, h)
+                    if not validated_bbox or not is_in_content_area(validated_bbox, w, h):
+                        continue
+                    
                     # Check if overlaps with existing detections
                     is_duplicate = False
                     for det in detections:
@@ -851,16 +957,10 @@ async def process_image(file: UploadFile = File(...)):
                             break
                     
                     if not is_duplicate:
-                        radius = 25
                         detections.append(DetectionResult(
                             class_name="instrument.bubble",
                             confidence=0.8,
-                            bbox={
-                                "x1": float(tx - radius),
-                                "y1": float(ty - radius),
-                                "x2": float(tx + radius),
-                                "y2": float(ty + radius),
-                            },
+                            bbox=validated_bbox,
                             tag=tag_text,
                         ))
                         circle_count += 1
@@ -1076,6 +1176,138 @@ async def analyze_tag(
         raise HTTPException(500, f"Failed to analyze tag: {str(e)}")
 
 
+@app.post("/api/ask-pid", response_model=PIDQuestionResponse)
+async def ask_pid_question(request: PIDQuestionRequest):
+    """
+    Engineering Q&A Assistant - Ask questions about P&ID topology
+    
+    Uses Gemini AI to analyze the graph topology and answer engineering questions
+    about how pipes, equipment, and instruments are connected.
+    
+    Args:
+        request: Question and graph topology (nodes and edges)
+        
+    Returns:
+        AI-generated answer based on topology analysis
+    """
+    try:
+        # Check if Gemini is available
+        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            raise HTTPException(
+                503, 
+                "Gemini API not configured. Please set GOOGLE_API_KEY in .env file."
+            )
+        
+        # Validate API key format
+        if not api_key.startswith("AIza"):
+            raise HTTPException(
+                503,
+                "Invalid Gemini API key format. Get a valid key from https://makersuite.google.com/app/apikey"
+            )
+        
+        # Import Gemini SDK
+        try:
+            import google.generativeai as genai
+        except ImportError:
+            raise HTTPException(
+                503,
+                "google-generativeai package not installed. Run: pip install google-generativeai"
+            )
+        
+        # Configure Gemini
+        genai.configure(api_key=api_key)
+        
+        # Use gemini-2.0-flash (stable, fast model)
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        
+        # Prepare topology data
+        topology_json = {
+            "nodes": request.topology.nodes,
+            "edges": request.topology.edges,
+            "summary": {
+                "total_nodes": len(request.topology.nodes),
+                "total_edges": len(request.topology.edges),
+                "node_types": {}
+            }
+        }
+        
+        # Count node types
+        for node in request.topology.nodes:
+            node_type = node.get("type", "unknown")
+            topology_json["summary"]["node_types"][node_type] = \
+                topology_json["summary"]["node_types"].get(node_type, 0) + 1
+        
+        # Create system prompt
+        system_prompt = """You are an expert chemical and process engineer with deep knowledge of P&ID (Piping & Instrumentation Diagrams) and process control systems.
+
+Your role is to analyze the provided P&ID graph topology and answer engineering questions about:
+- How pipes, equipment, and instruments are connected
+- Flow paths through the system
+- Control loops and instrumentation
+- Safety systems and interlocks
+- Equipment relationships and dependencies
+
+The topology is provided as JSON with:
+- **nodes**: Each node has an id, type (instrument/valve/equipment), tag, label, and position (x, y)
+- **edges**: Each edge has source, target, and type (connected_to/flow/signal/control)
+
+When answering:
+1. **Trace connections** by following edges between nodes
+2. **Identify flow paths** from source to destination
+3. **Explain control loops** by finding instruments and their connections
+4. **Use proper engineering terminology** (ISA S5.1 standards)
+5. **Be specific** - reference actual node IDs and tags from the topology
+6. **If information is missing**, clearly state what cannot be determined from the topology
+
+Format your answers clearly with:
+- Direct answer to the question
+- Supporting evidence from the topology
+- Relevant node IDs and tags
+- Any assumptions or limitations
+
+Be concise but thorough. Focus on engineering accuracy."""
+
+        # Create user prompt with topology
+        user_prompt = f"""**P&ID Topology Data:**
+```json
+{json.dumps(topology_json, indent=2)}
+```
+
+**User Question:**
+{request.question}
+
+Please analyze the topology and provide a detailed engineering answer."""
+
+        # Generate response
+        logger.info(f"Asking Gemini about P&ID: {request.question}")
+        logger.info(f"Topology: {len(request.topology.nodes)} nodes, {len(request.topology.edges)} edges")
+        
+        response = model.generate_content([
+            {"role": "user", "parts": [system_prompt]},
+            {"role": "model", "parts": ["I understand. I'm ready to analyze P&ID topologies and answer engineering questions with precision and accuracy."]},
+            {"role": "user", "parts": [user_prompt]}
+        ])
+        
+        answer = response.text
+        
+        logger.info(f"Gemini response length: {len(answer)} characters")
+        
+        return PIDQuestionResponse(
+            answer=answer,
+            question=request.question,
+            timestamp=datetime.now().isoformat()
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in ask_pid_question endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(500, f"Failed to process question: {str(e)}")
+
+
 @app.post("/deliverables/generate")
 async def generate_deliverables(
     pid_reference: str = Form(...),
@@ -1085,6 +1317,16 @@ async def generate_deliverables(
     
     if not state.current_graph:
         raise HTTPException(400, "No graph loaded. Process an image first.")
+    
+    # VALIDATION: Check if graph has nodes
+    all_nodes = state.current_graph.get_all_nodes()
+    if not all_nodes or len(all_nodes) == 0:
+        print("[Deliverables] Graph is empty, generating demo data")
+        return await generate_demo_deliverables(pid_reference, plc_name)
+    
+    # VALIDATION: Check if graph has tagged instruments
+    tagged_nodes = [n for n in all_nodes if hasattr(n, 'tag') and n.tag]
+    print(f"[Deliverables] Generating from {len(all_nodes)} nodes, {len(tagged_nodes)} tagged")
     
     try:
         # Import deliverable generators
@@ -1101,6 +1343,12 @@ async def generate_deliverables(
         # Generate Instrument Index
         inst_gen = InstrumentIndexGenerator()
         inst_df = inst_gen.generate(state.current_graph, pid_reference)
+        
+        # Check if DataFrame is empty
+        if inst_df.empty:
+            print("[Deliverables] Instrument Index is empty, adding demo data")
+            inst_df = create_demo_instrument_index(pid_reference)
+        
         formatter.create_formatted_sheet(
             "Instrument Index",
             inst_df,
@@ -1111,6 +1359,11 @@ async def generate_deliverables(
         # Generate I/O List
         io_gen = IOListGenerator()
         io_df = io_gen.generate(state.current_graph, pid_reference, plc_name)
+        
+        if io_df.empty:
+            print("[Deliverables] I/O List is empty, adding demo data")
+            io_df = create_demo_io_list(pid_reference, plc_name)
+        
         formatter.create_formatted_sheet(
             "IO List",
             io_df,
@@ -1121,6 +1374,11 @@ async def generate_deliverables(
         # Generate Alarm List
         alarm_gen = AlarmListGenerator()
         alarm_df = alarm_gen.generate(state.current_graph, pid_reference)
+        
+        if alarm_df.empty:
+            print("[Deliverables] Alarm List is empty, adding demo data")
+            alarm_df = create_demo_alarm_list(pid_reference)
+        
         formatter.create_formatted_sheet(
             "Alarm List",
             alarm_df,
@@ -1144,6 +1402,175 @@ async def generate_deliverables(
         print(f"Error generating deliverables: {e}")
         print(traceback.format_exc())
         raise HTTPException(500, f"Failed to generate deliverables: {str(e)}")
+
+
+def create_demo_instrument_index(pid_reference: str):
+    """Create demo instrument index data"""
+    import pandas as pd
+    
+    demo_data = [
+        {
+            'Tag Number': 'FT-101',
+            'Instrument Type': 'Flow Transmitter',
+            'Measured Variable': 'Flow',
+            'Function': 'Transmitter',
+            'Service Description': 'Feed flow measurement',
+            'P&ID Drawing': pid_reference,
+            'Location': 'Field',
+            'Connected Equipment': 'P-101',
+            'Line Number': 'L-101',
+            'Remarks': 'Demo data - no instruments detected in P&ID'
+        },
+        {
+            'Tag Number': 'PT-201',
+            'Instrument Type': 'Pressure Transmitter',
+            'Measured Variable': 'Pressure',
+            'Function': 'Transmitter',
+            'Service Description': 'Discharge pressure measurement',
+            'P&ID Drawing': pid_reference,
+            'Location': 'Field',
+            'Connected Equipment': 'V-201',
+            'Line Number': 'L-201',
+            'Remarks': 'Demo data - no instruments detected in P&ID'
+        },
+        {
+            'Tag Number': 'LT-301',
+            'Instrument Type': 'Level Transmitter',
+            'Measured Variable': 'Level',
+            'Function': 'Transmitter',
+            'Service Description': 'Tank level measurement',
+            'P&ID Drawing': pid_reference,
+            'Location': 'Field',
+            'Connected Equipment': 'T-301',
+            'Line Number': '',
+            'Remarks': 'Demo data - no instruments detected in P&ID'
+        }
+    ]
+    
+    return pd.DataFrame(demo_data)
+
+
+def create_demo_io_list(pid_reference: str, plc_name: str):
+    """Create demo I/O list data"""
+    import pandas as pd
+    
+    demo_data = [
+        {
+            'Tag Number': 'FT-101',
+            'Signal Type': 'AI',
+            'Description': 'Feed flow measurement',
+            'PLC/DCS': plc_name,
+            'Card/Slot': 'AI-01',
+            'Channel': '01',
+            'Range': '0-100 m³/h',
+            'Units': 'm³/h',
+            'P&ID Drawing': pid_reference,
+            'Remarks': 'Demo data - no instruments detected in P&ID'
+        },
+        {
+            'Tag Number': 'PT-201',
+            'Signal Type': 'AI',
+            'Description': 'Discharge pressure measurement',
+            'PLC/DCS': plc_name,
+            'Card/Slot': 'AI-01',
+            'Channel': '02',
+            'Range': '0-10 bar',
+            'Units': 'bar',
+            'P&ID Drawing': pid_reference,
+            'Remarks': 'Demo data - no instruments detected in P&ID'
+        },
+        {
+            'Tag Number': 'FV-101',
+            'Signal Type': 'AO',
+            'Description': 'Feed flow control valve',
+            'PLC/DCS': plc_name,
+            'Card/Slot': 'AO-01',
+            'Channel': '01',
+            'Range': '0-100%',
+            'Units': '%',
+            'P&ID Drawing': pid_reference,
+            'Remarks': 'Demo data - no instruments detected in P&ID'
+        }
+    ]
+    
+    return pd.DataFrame(demo_data)
+
+
+def create_demo_alarm_list(pid_reference: str):
+    """Create demo alarm list data"""
+    import pandas as pd
+    
+    demo_data = [
+        {
+            'Tag Number': 'PAH-201',
+            'Alarm Type': 'High Pressure',
+            'Priority': 'Critical',
+            'Setpoint': '9.5 bar',
+            'Action': 'Shutdown pump P-201',
+            'P&ID Drawing': pid_reference,
+            'Remarks': 'Demo data - no alarms detected in P&ID'
+        },
+        {
+            'Tag Number': 'LAL-301',
+            'Alarm Type': 'Low Level',
+            'Priority': 'High',
+            'Setpoint': '10%',
+            'Action': 'Close inlet valve',
+            'P&ID Drawing': pid_reference,
+            'Remarks': 'Demo data - no alarms detected in P&ID'
+        },
+        {
+            'Tag Number': 'TAH-401',
+            'Alarm Type': 'High Temperature',
+            'Priority': 'Medium',
+            'Setpoint': '80°C',
+            'Action': 'Operator notification',
+            'P&ID Drawing': pid_reference,
+            'Remarks': 'Demo data - no alarms detected in P&ID'
+        }
+    ]
+    
+    return pd.DataFrame(demo_data)
+
+
+async def generate_demo_deliverables(pid_reference: str, plc_name: str):
+    """Generate deliverables with demo data when graph is empty"""
+    from src.deliverables import ExcelFormatter
+    
+    formatter = ExcelFormatter()
+    
+    # Add demo sheets
+    formatter.create_formatted_sheet(
+        "Instrument Index",
+        create_demo_instrument_index(pid_reference),
+        f"Instrument Index - {pid_reference}",
+        f"Demo Data - No instruments detected in P&ID"
+    )
+    
+    formatter.create_formatted_sheet(
+        "IO List",
+        create_demo_io_list(pid_reference, plc_name),
+        f"I/O List - {pid_reference}",
+        f"Demo Data - PLC/DCS: {plc_name}"
+    )
+    
+    formatter.create_formatted_sheet(
+        "Alarm List",
+        create_demo_alarm_list(pid_reference),
+        f"Alarm & Trip List - {pid_reference}",
+        "Demo Data - No alarms detected in P&ID"
+    )
+    
+    # Save to temp file
+    output_dir = tempfile.gettempdir()
+    output_path = os.path.join(output_dir, f"{pid_reference}_deliverables_demo.xlsx")
+    formatter.save(output_path)
+    
+    return FileResponse(
+        output_path,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename=f"{pid_reference}_deliverables_demo.xlsx"
+    )
 
 
 @app.get("/design-rules/check")

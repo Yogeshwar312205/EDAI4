@@ -52,10 +52,10 @@ export const FlowSimulator: React.FC = () => {
   const simulateMutation = useMutation({
     mutationFn: async () => {
       const formData = new FormData();
-      formData.append('valve_id', selectedValve);
+      formData.append('valve_tag', selectedValve);  // Changed from valve_id to valve_tag
       formData.append('action', valveAction);
 
-      const response = await axios.post('/api/flow/simulate', formData);
+      const response = await axios.post('/api/flow/simulate-valve', formData);  // Fixed endpoint
       return response.data;
     },
     onSuccess: (data) => {

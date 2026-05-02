@@ -602,13 +602,31 @@ class PaddleOCREngine:
     
     def _extract_paddle(self, image: np.ndarray) -> List[OCRText]:
         """Safely extract text without crashing on debug prints."""
+        import time
+        start_time = time.time()
+        
         h, w = image.shape[:2]
-        print(f"[OCR] Processing {w}x{h} image at original resolution (fast mode)")
+        
+        # OPTIMIZATION: Resize large images for faster OCR
+        max_dimension = 1920  # Optimal for P&ID text detection
+        scale_factor = 1.0
+        
+        if max(h, w) > max_dimension:
+            scale_factor = max_dimension / max(h, w)
+            new_w = int(w * scale_factor)
+            new_h = int(h * scale_factor)
+            import cv2
+            image = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            print(f"[OCR] Resized from {w}x{h} to {new_w}x{new_h} for faster processing")
+            h, w = new_h, new_w
+        else:
+            print(f"[OCR] Processing {w}x{h} image (fast mode)")
         
         # 1. Run OCR safely
         try:
             raw_results = self._ocr.ocr(image) 
-            print("[OCR] ✓ PaddleOCR completed")
+            elapsed = (time.time() - start_time) * 1000
+            print(f"[OCR] ✓ PaddleOCR completed in {elapsed:.0f}ms")
         except Exception as e:
             print(f"[OCR] ✗ PaddleOCR failed to run: {e}")
             return []
@@ -622,7 +640,7 @@ class PaddleOCREngine:
         if not page_result:
             return text_blocks
             
-        # 3. Parse the nested output
+        # 3. Parse the nested output (scale coordinates back if resized)
         for idx, item in enumerate(page_result):
             try:
                 # Standard format: [[[x1,y1], [x2,y2], [x3,y3], [x4,y4]], ('Text', conf)]
@@ -635,8 +653,9 @@ class PaddleOCREngine:
                     
                     print(f"[OCR RAW] '{text}' (conf={conf:.2f})")
                     
-                    xs = [float(p[0]) for p in bbox_points]
-                    ys = [float(p[1]) for p in bbox_points]
+                    # Scale coordinates back to original image size
+                    xs = [float(p[0]) / scale_factor for p in bbox_points]
+                    ys = [float(p[1]) / scale_factor for p in bbox_points]
                     
                     text_blocks.append(OCRText(
                         text=text,
