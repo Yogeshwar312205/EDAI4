@@ -1176,6 +1176,139 @@ async def analyze_tag(
         raise HTTPException(500, f"Failed to analyze tag: {str(e)}")
 
 
+def generate_fallback_answer(question: str, topology_json: dict) -> str:
+    """
+    Generate a rule-based answer when Gemini API is unavailable.
+    This provides basic analysis without requiring LLM.
+    """
+    question_lower = question.lower()
+    nodes = topology_json.get("nodes", [])
+    edges = topology_json.get("edges", [])
+    summary = topology_json.get("summary", {})
+    
+    # Extract useful info
+    total_nodes = summary.get("total_nodes", len(nodes))
+    total_edges = summary.get("total_edges", len(edges))
+    node_types = summary.get("node_types", {})
+    
+    # Get all tags
+    tags = [n.get("tag") or n.get("label") for n in nodes if n.get("tag") or n.get("label")]
+    
+    # Categorize by instrument type
+    instruments = {}
+    for node in nodes:
+        tag = node.get("tag") or node.get("label", "")
+        if tag and len(tag) >= 2:
+            prefix = tag[:2].upper()
+            if prefix not in instruments:
+                instruments[prefix] = []
+            instruments[prefix].append(tag)
+    
+    # Build answer based on question type
+    answer_parts = []
+    
+    # Header
+    answer_parts.append("**P&ID Analysis (Rule-Based Mode)**\n")
+    answer_parts.append("*Note: Gemini API quota exceeded. Using fallback analysis.*\n")
+    
+    # Question-specific analysis
+    if any(word in question_lower for word in ["list", "show", "what", "which", "all"]):
+        if "instrument" in question_lower or "tag" in question_lower:
+            answer_parts.append(f"\n**Instruments Found ({len(tags)} total):**\n")
+            for prefix, tag_list in sorted(instruments.items()):
+                answer_parts.append(f"- **{prefix}**: {', '.join(sorted(tag_list))}")
+        
+        elif "flow" in question_lower:
+            flow_instruments = instruments.get("FT", []) + instruments.get("FI", []) + instruments.get("FC", [])
+            if flow_instruments:
+                answer_parts.append(f"\n**Flow Instruments ({len(flow_instruments)}):**\n")
+                answer_parts.append(", ".join(sorted(flow_instruments)))
+            else:
+                answer_parts.append("\nNo flow instruments detected.")
+        
+        elif "pressure" in question_lower:
+            pressure_instruments = instruments.get("PT", []) + instruments.get("PI", []) + instruments.get("PC", [])
+            if pressure_instruments:
+                answer_parts.append(f"\n**Pressure Instruments ({len(pressure_instruments)}):**\n")
+                answer_parts.append(", ".join(sorted(pressure_instruments)))
+            else:
+                answer_parts.append("\nNo pressure instruments detected.")
+        
+        elif "temperature" in question_lower or "temp" in question_lower:
+            temp_instruments = instruments.get("TT", []) + instruments.get("TI", []) + instruments.get("TC", [])
+            if temp_instruments:
+                answer_parts.append(f"\n**Temperature Instruments ({len(temp_instruments)}):**\n")
+                answer_parts.append(", ".join(sorted(temp_instruments)))
+            else:
+                answer_parts.append("\nNo temperature instruments detected.")
+        
+        elif "level" in question_lower:
+            level_instruments = instruments.get("LT", []) + instruments.get("LI", []) + instruments.get("LC", [])
+            if level_instruments:
+                answer_parts.append(f"\n**Level Instruments ({len(level_instruments)}):**\n")
+                answer_parts.append(", ".join(sorted(level_instruments)))
+            else:
+                answer_parts.append("\nNo level instruments detected.")
+        
+        elif "valve" in question_lower:
+            valves = [n.get("tag") or n.get("label") for n in nodes 
+                     if "valve" in (n.get("type", "").lower())]
+            if valves:
+                answer_parts.append(f"\n**Valves ({len(valves)}):**\n")
+                answer_parts.append(", ".join(sorted(valves)))
+            else:
+                answer_parts.append("\nNo valves detected.")
+    
+    elif "how many" in question_lower or "count" in question_lower:
+        answer_parts.append(f"\n**Topology Summary:**\n")
+        answer_parts.append(f"- Total Nodes: {total_nodes}")
+        answer_parts.append(f"- Total Connections: {total_edges}")
+        answer_parts.append(f"- Total Instruments: {len(tags)}")
+        
+        if node_types:
+            answer_parts.append(f"\n**By Type:**")
+            for node_type, count in sorted(node_types.items()):
+                answer_parts.append(f"- {node_type}: {count}")
+    
+    elif "connect" in question_lower or "path" in question_lower or "flow" in question_lower:
+        answer_parts.append(f"\n**Connectivity Analysis:**\n")
+        answer_parts.append(f"- Total Connections: {total_edges}")
+        answer_parts.append(f"- Average Connections per Node: {total_edges / max(total_nodes, 1):.1f}")
+        
+        # Find most connected nodes
+        connection_count = {}
+        for edge in edges:
+            source = edge.get("source")
+            target = edge.get("target")
+            connection_count[source] = connection_count.get(source, 0) + 1
+            connection_count[target] = connection_count.get(target, 0) + 1
+        
+        if connection_count:
+            top_connected = sorted(connection_count.items(), key=lambda x: x[1], reverse=True)[:5]
+            answer_parts.append(f"\n**Most Connected Nodes:**")
+            for node_id, count in top_connected:
+                # Find node label
+                node_label = next((n.get("tag") or n.get("label") for n in nodes if n.get("id") == node_id), node_id)
+                answer_parts.append(f"- {node_label}: {count} connections")
+    
+    else:
+        # Generic answer
+        answer_parts.append(f"\n**P&ID Overview:**\n")
+        answer_parts.append(f"- Nodes: {total_nodes}")
+        answer_parts.append(f"- Connections: {total_edges}")
+        answer_parts.append(f"- Instruments: {len(tags)}")
+        
+        if instruments:
+            answer_parts.append(f"\n**Instrument Types:**")
+            for prefix, tag_list in sorted(instruments.items()):
+                answer_parts.append(f"- {prefix}: {len(tag_list)} instruments")
+    
+    # Footer
+    answer_parts.append(f"\n\n**Tip:** For more detailed AI-powered analysis, please check your Gemini API quota at https://ai.google.dev/gemini-api/docs/rate-limits")
+    
+    return "\n".join(answer_parts)
+
+
 @app.post("/api/ask-pid", response_model=PIDQuestionResponse)
 async def ask_pid_question(request: PIDQuestionRequest):
     """
@@ -1206,20 +1339,20 @@ async def ask_pid_question(request: PIDQuestionRequest):
                 "Invalid Gemini API key format. Get a valid key from https://makersuite.google.com/app/apikey"
             )
         
-        # Import Gemini SDK
+        # Import NEW Gemini SDK
         try:
-            import google.generativeai as genai
+            from google import genai
         except ImportError:
             raise HTTPException(
                 503,
-                "google-generativeai package not installed. Run: pip install google-generativeai"
+                "google-genai package not installed. Run: pip install google-genai"
             )
         
-        # Configure Gemini
-        genai.configure(api_key=api_key)
+        # Configure Gemini with NEW API
+        client = genai.Client(api_key=api_key)
         
-        # Use gemini-2.0-flash (stable, fast model)
-        model = genai.GenerativeModel('gemini-2.0-flash')
+        # Use gemini-2.5-flash (Latest, fastest model)
+        model_name = 'models/gemini-2.5-flash'
         
         # Prepare topology data
         topology_json = {
@@ -1279,19 +1412,30 @@ Be concise but thorough. Focus on engineering accuracy."""
 
 Please analyze the topology and provide a detailed engineering answer."""
 
-        # Generate response
+        # Generate response with error handling
         logger.info(f"Asking Gemini about P&ID: {request.question}")
         logger.info(f"Topology: {len(request.topology.nodes)} nodes, {len(request.topology.edges)} edges")
         
-        response = model.generate_content([
-            {"role": "user", "parts": [system_prompt]},
-            {"role": "model", "parts": ["I understand. I'm ready to analyze P&ID topologies and answer engineering questions with precision and accuracy."]},
-            {"role": "user", "parts": [user_prompt]}
-        ])
-        
-        answer = response.text
-        
-        logger.info(f"Gemini response length: {len(answer)} characters")
+        try:
+            # Use NEW API format
+            response = client.models.generate_content(
+                model=model_name,
+                contents=f"{system_prompt}\n\n{user_prompt}"
+            )
+            
+            answer = response.text
+            logger.info(f"Gemini response length: {len(answer)} characters")
+            
+        except Exception as gemini_error:
+            # Check if it's a quota error
+            error_str = str(gemini_error)
+            if "429" in error_str or "quota" in error_str.lower() or "ResourceExhausted" in error_str:
+                logger.warning(f"Gemini API quota exceeded, using fallback analysis")
+                # Use fallback rule-based analysis
+                answer = generate_fallback_answer(request.question, topology_json)
+            else:
+                # Re-raise other errors
+                raise
         
         return PIDQuestionResponse(
             answer=answer,
@@ -1305,7 +1449,18 @@ Please analyze the topology and provide a detailed engineering answer."""
         logger.error(f"Error in ask_pid_question endpoint: {e}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(500, f"Failed to process question: {str(e)}")
+        
+        # Try fallback one more time
+        try:
+            logger.info("Attempting fallback analysis after error")
+            answer = generate_fallback_answer(request.question, topology_json)
+            return PIDQuestionResponse(
+                answer=answer,
+                question=request.question,
+                timestamp=datetime.now().isoformat()
+            )
+        except:
+            raise HTTPException(500, f"Failed to process question: {str(e)}")
 
 
 @app.post("/deliverables/generate")
