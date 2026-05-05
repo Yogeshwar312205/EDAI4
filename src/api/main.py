@@ -1341,20 +1341,24 @@ async def ask_pid_question(request: PIDQuestionRequest):
                 "Invalid Gemini API key format. Get a valid key from https://makersuite.google.com/app/apikey"
             )
         
-        # Import NEW Gemini SDK
+        # Import OLD Gemini SDK (deprecated but still works)
         try:
-            from google import genai
+            import google.generativeai as genai
         except ImportError:
             raise HTTPException(
                 503,
-                "google-genai package not installed. Run: pip install google-genai"
+                "google-generativeai package not installed. Run: pip install google-generativeai"
             )
         
-        # Configure Gemini with NEW API
-        client = genai.Client(api_key=api_key)
+        # Configure Gemini with OLD API
+        genai.configure(api_key=api_key)
         
-        # Use gemini-2.5-flash (Latest, fastest model)
-        model_name = 'models/gemini-2.5-flash'
+        # Use gemini-2.5-flash (gemini-1.5-flash is no longer available)
+        # Note: The OLD package automatically adds 'models/' prefix
+        model_name = 'gemini-2.5-flash'
+        model = genai.GenerativeModel(model_name)
+        
+        logger.info(f"Chatbot using Gemini model: {model_name} (will become models/{model_name})")
         
         # Prepare topology data
         topology_json = {
@@ -1414,30 +1418,37 @@ Be concise but thorough. Focus on engineering accuracy."""
 
 Please analyze the topology and provide a detailed engineering answer."""
 
+        # Combine prompts
+        full_prompt = f"{system_prompt}\n\n{user_prompt}"
+
         # Generate response with error handling
         logger.info(f"Asking Gemini about P&ID: {request.question}")
         logger.info(f"Topology: {len(request.topology.nodes)} nodes, {len(request.topology.edges)} edges")
         
         try:
-            # Use NEW API format
-            response = client.models.generate_content(
-                model=model_name,
-                contents=f"{system_prompt}\n\n{user_prompt}"
-            )
+            # Use OLD API format (same as HazOp)
+            response = model.generate_content(full_prompt)
             
             answer = response.text
-            logger.info(f"Gemini response length: {len(answer)} characters")
+            logger.info(f"✓ Gemini response received: {len(answer)} characters")
             
         except Exception as gemini_error:
             # Check if it's a quota error
             error_str = str(gemini_error)
-            if "429" in error_str or "quota" in error_str.lower() or "ResourceExhausted" in error_str:
-                logger.warning(f"Gemini API quota exceeded, using fallback analysis")
+            logger.error(f"Gemini API error: {error_str}")
+            
+            if "429" in error_str or "quota" in error_str.lower() or "ResourceExhausted" in error_str or "503" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                logger.warning(f"⚠ Gemini API quota exceeded, using fallback analysis")
                 # Use fallback rule-based analysis
                 answer = generate_fallback_answer(request.question, topology_json)
             else:
-                # Re-raise other errors
-                raise
+                # For other errors, try fallback as well
+                logger.warning(f"⚠ Gemini API error, attempting fallback: {error_str}")
+                try:
+                    answer = generate_fallback_answer(request.question, topology_json)
+                except Exception as fallback_error:
+                    logger.error(f"Fallback also failed: {fallback_error}")
+                    raise HTTPException(500, f"Both Gemini and fallback failed: {str(gemini_error)}")
         
         return PIDQuestionResponse(
             answer=answer,
@@ -1951,6 +1962,128 @@ async def simulate_hazop(request: HazOpSimulationRequest):
         raise HTTPException(
             status_code=500,
             detail=f"HazOp simulation failed: {str(e)}"
+        )
+
+
+@app.post("/api/filter-graph", response_model=Any)
+async def filter_graph(request: Dict[str, Any]):
+    """
+    Filter graph nodes based on natural language query.
+    
+    Uses Gemini AI to understand the query and return matching node/edge IDs.
+    
+    Args:
+        request: Dict with 'query' (str) and 'topology' (dict)
+        
+    Returns:
+        GraphFilterResponse with matched_node_ids, matched_edge_ids, and explanation
+        
+    Example:
+        ```json
+        {
+            "query": "Show me all cooling water lines connected to the furnace",
+            "topology": {
+                "nodes": [...],
+                "edges": [...]
+            }
+        }
+        ```
+    """
+    try:
+        from src.api.graph_filter import get_graph_filter, GraphFilterRequest
+        
+        query = request.get("query", "")
+        topology = request.get("topology", {})
+        
+        logger.info(f"Graph filter request: {query}")
+        
+        # Get graph filter instance
+        graph_filter = get_graph_filter()
+        
+        # Filter graph
+        result = graph_filter.filter_graph(
+            query=query,
+            topology=topology
+        )
+        
+        logger.info(f"Graph filter complete: {len(result.matched_node_ids)} nodes matched")
+        
+        return result.dict()
+        
+    except ValueError as e:
+        logger.error(f"Configuration error: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"Graph Filter not configured: {str(e)}. Please set GOOGLE_API_KEY in .env file."
+        )
+    except Exception as e:
+        logger.error(f"Graph filtering failed: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Graph filtering failed: {str(e)}"
+        )
+
+
+@app.post("/api/generate-maintenance-checklist", response_model=Any)
+async def generate_maintenance_checklist(request: Dict[str, Any]):
+    """
+    Generate equipment-specific maintenance checklist.
+    
+    Uses Gemini AI to generate preventative maintenance tasks based on equipment type.
+    
+    Args:
+        request: Dict with 'equipment_type', 'equipment_tag', and optional 'equipment_description'
+        
+    Returns:
+        MaintenanceChecklistResponse with tasks, safety warnings, and estimated time
+        
+    Example:
+        ```json
+        {
+            "equipment_type": "Centrifugal Pump",
+            "equipment_tag": "P-101",
+            "equipment_description": "Cooling water circulation pump"
+        }
+        ```
+    """
+    try:
+        from src.api.maintenance_checklist import get_maintenance_generator, MaintenanceChecklistRequest
+        
+        equipment_type = request.get("equipment_type", "")
+        equipment_tag = request.get("equipment_tag", "")
+        equipment_description = request.get("equipment_description", "")
+        
+        logger.info(f"Maintenance checklist request: {equipment_type} ({equipment_tag})")
+        
+        # Get maintenance generator instance
+        generator = get_maintenance_generator()
+        
+        # Generate checklist
+        result = generator.generate_checklist(
+            equipment_type=equipment_type,
+            equipment_tag=equipment_tag,
+            equipment_description=equipment_description
+        )
+        
+        logger.info(f"Maintenance checklist generated: {len(result.tasks)} tasks")
+        
+        return result.dict()
+        
+    except ValueError as e:
+        logger.error(f"Configuration error: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"Maintenance Checklist Generator not configured: {str(e)}. Please set GOOGLE_API_KEY in .env file."
+        )
+    except Exception as e:
+        logger.error(f"Maintenance checklist generation failed: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Maintenance checklist generation failed: {str(e)}"
         )
 
 

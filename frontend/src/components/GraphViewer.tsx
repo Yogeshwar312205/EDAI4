@@ -17,8 +17,10 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import { useAppStore } from '@/store/useAppStore';
 import type { GraphData } from '@/types/api';
-import { AlertCircle, Maximize2, ZoomIn, ZoomOut } from 'lucide-react';
+import { AlertCircle, Maximize2, ZoomIn, ZoomOut, Wrench, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Filter, X } from 'lucide-react';
 import { ChatPanel } from './ChatPanel';
+import { GraphFilter } from './GraphFilter';
+import { MaintenanceChecklist } from './MaintenanceChecklist';
 
 interface GraphViewerProps {
   graphData: GraphData;
@@ -40,6 +42,24 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ graphData }) => {
   } | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  
+  // Graph Filter state
+  const [isFilterActive, setIsFilterActive] = useState(false);
+  const [filteredNodeIds, setFilteredNodeIds] = useState<string[]>([]);
+  const [filteredEdgeIds, setFilteredEdgeIds] = useState<string[]>([]);
+  
+  // Maintenance Checklist state
+  const [showMaintenanceChecklist, setShowMaintenanceChecklist] = useState(false);
+  const [selectedEquipment, setSelectedEquipment] = useState<{
+    type: string;
+    tag: string;
+    description: string;
+  } | null>(null);
+  
+  // Panel collapse state
+  const [isFilterCollapsed, setIsFilterCollapsed] = useState(false);
+  const [isRightPanelCollapsed, setIsRightPanelCollapsed] = useState(false);
+  const [isLegendCollapsed, setIsLegendCollapsed] = useState(true);
 
   // Transform backend graph data maintaining EXACT P&ID spatial relationships
   const { initialNodes, initialEdges } = useMemo(() => {
@@ -307,6 +327,13 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ graphData }) => {
     async (_: React.MouseEvent, node: Node) => {
       setSelectedNodeId(node.id);
       
+      // Store equipment info for maintenance checklist
+      setSelectedEquipment({
+        type: node.data.type || 'Equipment',
+        tag: node.data.label || node.id,
+        description: `${node.data.type || 'Equipment'} node from P&ID`
+      });
+      
       // If it's an instrument node, trigger AI analysis
       if (node.data.type?.toLowerCase().includes('instrument')) {
         // Get the actual tag from the label, or use node ID if label is generic
@@ -398,7 +425,21 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ graphData }) => {
     }
   }, [selectedEdge, setEdges]);
 
-  // Highlight selected node
+  // Handle filter applied
+  const handleFilterApplied = useCallback((matchedNodeIds: string[], matchedEdgeIds: string[]) => {
+    setIsFilterActive(true);
+    setFilteredNodeIds(matchedNodeIds);
+    setFilteredEdgeIds(matchedEdgeIds);
+  }, []);
+  
+  // Handle filter cleared
+  const handleFilterCleared = useCallback(() => {
+    setIsFilterActive(false);
+    setFilteredNodeIds([]);
+    setFilteredEdgeIds([]);
+  }, []);
+  
+  // Highlight selected node and apply filter dimming
   useEffect(() => {
     if (nodes.length === 0) return;
     
@@ -407,23 +448,44 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ graphData }) => {
         const border = node.style?.border;
         const borderColor = typeof border === 'string' ? border.split(' ')[2] : '#61afef';
         const isSelected = selectedNodeId === node.id;
+        const isFiltered = isFilterActive && !filteredNodeIds.includes(node.id);
         
         return {
           ...node,
           style: {
             ...node.style,
-            // Only update boxShadow and zIndex
+            // Only update boxShadow, zIndex, and opacity
             // ❌ DO NOT USE 'transform' or 'transition' HERE
             // It overrides React Flow's internal position translates!
             boxShadow: isSelected
               ? `0 0 20px ${borderColor}, 0 0 40px ${borderColor}80`
               : `0 2px 6px ${borderColor}40`,
             zIndex: isSelected ? 1000 : 1,
+            opacity: isFiltered ? 0.2 : 1,
           },
         };
       })
     );
-  }, [selectedNodeId, setNodes, nodes.length]);
+  }, [selectedNodeId, isFilterActive, filteredNodeIds, setNodes, nodes.length]);
+  
+  // Apply filter dimming to edges
+  useEffect(() => {
+    if (edges.length === 0) return;
+    
+    setEdges((eds) =>
+      eds.map((edge) => {
+        const isFiltered = isFilterActive && !filteredEdgeIds.includes(edge.id);
+        
+        return {
+          ...edge,
+          style: {
+            ...edge.style,
+            opacity: isFiltered ? 0.1 : 1,
+          },
+        };
+      })
+    );
+  }, [isFilterActive, filteredEdgeIds, setEdges, edges.length]);
 
   // Error state
   if (error) {
@@ -499,8 +561,8 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ graphData }) => {
         <Background color="#3d4556" gap={16} size={1} />
         
         <Controls
-          className="bg-industrial-800/90 border border-industrial-600 rounded-lg"
-          position="top-left"
+          className="!bg-industrial-800/90 !border-industrial-600 !rounded-xl !shadow-2xl"
+          position="bottom-left"
           showInteractive={false}
         />
         
@@ -514,168 +576,169 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ graphData }) => {
           nodeStrokeWidth={3}
           nodeStrokeColor="#ffffff"
           nodeBorderRadius={2}
-          className="bg-industrial-800/90 border border-industrial-600 rounded-lg"
+          className="!bg-industrial-800/90 !border-industrial-600 !rounded-xl !shadow-2xl"
           maskColor="rgba(10, 14, 20, 0.6)"
           position="bottom-right"
           pannable
           zoomable
-          style={{ width: 200, height: 150 }}
+          style={{ width: 180, height: 120 }}
         />
 
-        {/* Top Right Panel */}
-        <Panel position="top-right" className="space-y-2">
-          {/* Edit Mode */}
-          <div className="bg-industrial-800/95 backdrop-blur-sm rounded-lg border border-industrial-600 shadow-xl p-3">
-            <h3 className="text-xs font-bold text-industrial-200 mb-2 font-mono">
-              Edit Mode
-            </h3>
-            <button
-              onClick={() => setEditMode(!editMode)}
-              className={`w-full px-3 py-2 text-xs rounded transition-colors font-semibold ${
-                editMode
-                  ? 'bg-accent-green text-industrial-950'
-                  : 'bg-industrial-700 text-industrial-300 hover:bg-industrial-600'
-              }`}
-            >
-              {editMode ? '✓ Editing' : 'Enable Edit'}
-            </button>
-            {editMode && (
-              <div className="mt-2 space-y-1">
-                <button
-                  onClick={handleDeleteNode}
-                  disabled={!selectedNodeId}
-                  className="w-full px-2 py-1.5 text-xs rounded bg-accent-red hover:bg-accent-red/80 disabled:bg-industrial-700 disabled:text-industrial-500 text-industrial-950 font-semibold transition-colors"
-                >
-                  Delete Node
-                </button>
-                <button
-                  onClick={handleDeleteEdge}
-                  disabled={!selectedEdge}
-                  className="w-full px-2 py-1.5 text-xs rounded bg-accent-red hover:bg-accent-red/80 disabled:bg-industrial-700 disabled:text-industrial-500 text-industrial-950 font-semibold transition-colors"
-                >
-                  Delete Edge
-                </button>
-              </div>
+        {/* Floating Top Toolbar */}
+        <Panel position="top-center" className="flex items-center gap-3">
+          {/* Graph Stats Badge */}
+          <div className="bg-industrial-800/95 backdrop-blur-md border border-industrial-600 rounded-full px-4 py-2 shadow-2xl flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-accent-blue animate-pulse" />
+              <span className="text-xs text-industrial-300">Nodes:</span>
+              <span className="text-sm font-bold text-accent-blue font-mono">{nodes.length}</span>
+            </div>
+            <div className="w-px h-4 bg-industrial-600" />
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-accent-cyan" />
+              <span className="text-xs text-industrial-300">Edges:</span>
+              <span className="text-sm font-bold text-accent-cyan font-mono">{edges.length}</span>
+            </div>
+            {isReady && (
+              <>
+                <div className="w-px h-4 bg-industrial-600" />
+                <div className="flex items-center gap-1">
+                  <div className="w-2 h-2 rounded-full bg-accent-green" />
+                  <span className="text-xs text-accent-green font-semibold">Ready</span>
+                </div>
+              </>
             )}
           </div>
 
-          {/* Zoom Controls */}
-          <div className="bg-industrial-800/95 backdrop-blur-sm rounded-lg border border-industrial-600 shadow-xl">
-            <button
-              onClick={() => zoomIn({ duration: 200 })}
-              className="w-full px-3 py-2 hover:bg-industrial-700 transition-colors border-b border-industrial-600"
-              title="Zoom In"
-            >
-              <ZoomIn className="w-4 h-4 text-industrial-300 mx-auto" />
-            </button>
-            <button
-              onClick={() => zoomOut({ duration: 200 })}
-              className="w-full px-3 py-2 hover:bg-industrial-700 transition-colors border-b border-industrial-600"
-              title="Zoom Out"
-            >
-              <ZoomOut className="w-4 h-4 text-industrial-300 mx-auto" />
-            </button>
-            <button
-              onClick={handleFitView}
-              className="w-full px-3 py-2 hover:bg-industrial-700 transition-colors"
-              title="Fit View"
-            >
-              <Maximize2 className="w-4 h-4 text-industrial-300 mx-auto" />
-            </button>
-          </div>
-
-          {/* Stats */}
-          <div className="bg-industrial-800/95 backdrop-blur-sm rounded-lg p-3 border border-industrial-600 shadow-xl max-w-xs">
-            <h3 className="text-xs font-bold text-industrial-200 mb-2 font-mono">
-              Graph Stats
-            </h3>
-            <div className="text-xs space-y-1">
-              <div className="flex justify-between gap-3">
-                <span className="text-industrial-400">Nodes:</span>
-                <span className="text-industrial-200 font-mono font-semibold">{nodes.length}</span>
-              </div>
-              <div className="flex justify-between gap-3">
-                <span className="text-industrial-400">Edges:</span>
-                <span className="text-industrial-200 font-mono font-semibold">{edges.length}</span>
-              </div>
-              {isReady && (
-                <div className="pt-1 border-t border-industrial-700">
-                  <span className="text-accent-green text-xs">✓ Ready</span>
-                  <div className="mt-1 text-[10px] text-industrial-500">
-                    Check browser console for coordinate details
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Smart OCR Tag Explainer */}
-          {selectedNodeId && (
-            <div className="bg-industrial-800/95 backdrop-blur-sm rounded-lg p-3 border border-industrial-600 shadow-xl max-w-xs">
-              <h3 className="text-xs font-bold text-industrial-200 mb-2 font-mono flex items-center gap-2">
-                <span className="text-accent-blue">🤖</span>
-                AI Tag Explainer
-              </h3>
-              
-              {isAnalyzing ? (
-                <div className="flex flex-col items-center justify-center py-4">
-                  <div className="w-8 h-8 border-3 border-accent-blue border-t-transparent rounded-full animate-spin mb-2" />
-                  <p className="text-xs text-industrial-400">Analyzing tag...</p>
-                </div>
-              ) : analysisError ? (
-                <div className="text-xs text-accent-red bg-accent-red/10 rounded p-2">
-                  <p className="font-semibold mb-1">⚠️ API Error</p>
-                  <p className="text-[10px]">{analysisError}</p>
-                </div>
-              ) : tagAnalysis ? (
-                <div className="space-y-2">
-                  <div className="bg-industrial-900/50 rounded p-2">
-                    <p className="text-[10px] text-industrial-400 mb-1">Tag</p>
-                    <p className="text-sm font-bold text-accent-blue font-mono break-all">
-                      {tagAnalysis.tag}
-                    </p>
-                  </div>
-                  <div className="bg-industrial-900/50 rounded p-2">
-                    <p className="text-[10px] text-industrial-400 mb-1">Definition</p>
-                    <p className="text-xs text-industrial-200 leading-relaxed">
-                      {tagAnalysis.definition}
-                    </p>
-                  </div>
-                  {tagAnalysis.definition.includes('⚠️') && (
-                    <div className="text-[10px] text-accent-yellow bg-accent-yellow/10 rounded p-2 mt-2">
-                      <p className="font-semibold">💡 Tip</p>
-                      <p>This node needs proper ISA tag extraction from the P&ID image.</p>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="text-xs text-industrial-400 text-center py-3">
-                  Click an instrument node to analyze its tag
-                </div>
-              )}
-            </div>
-          )}
+          {/* Filter Toggle Button */}
+          <button
+            onClick={() => setIsFilterCollapsed(!isFilterCollapsed)}
+            className={`bg-industrial-800/95 backdrop-blur-md border rounded-full px-4 py-2 shadow-2xl flex items-center gap-2 transition-all hover:scale-105 ${
+              isFilterActive 
+                ? 'border-accent-blue bg-accent-blue/10' 
+                : 'border-industrial-600 hover:border-accent-blue/50'
+            }`}
+          >
+            <Filter className={`w-4 h-4 ${isFilterActive ? 'text-accent-blue' : 'text-industrial-300'}`} />
+            <span className={`text-sm font-semibold ${isFilterActive ? 'text-accent-blue' : 'text-industrial-200'}`}>
+              {isFilterActive ? 'Filter Active' : 'Smart Filter'}
+            </span>
+            {isFilterActive && (
+              <span className="w-2 h-2 rounded-full bg-accent-blue animate-pulse" />
+            )}
+          </button>
         </Panel>
 
-        {/* Bottom Left Panel - Legend */}
-        <Panel position="bottom-left" className="mb-2 ml-2">
-          <div className="bg-industrial-800/95 backdrop-blur-sm rounded-lg p-3 border border-industrial-600 shadow-xl">
-            <h3 className="text-xs font-bold text-industrial-200 mb-2 font-mono">
-              Legend
-            </h3>
-            <div className="space-y-1.5 text-xs">
-              <LegendItem color="#61afef" shape="circle" label="Instruments" />
-              <LegendItem color="#56b6c2" shape="circle" label="Valves" />
-              <LegendItem color="#98c379" shape="square" label="Equipment" />
-              <LegendItem color="#e5c07b" shape="square" label="Pumps" />
-              <LegendItem color="#c678dd" shape="square" label="Other" />
+        {/* Floating Filter Panel */}
+        {!isFilterCollapsed && (
+          <Panel position="top-left" className="mt-20 ml-4 animate-slide-in">
+            <div className="bg-industrial-800/95 backdrop-blur-md border border-industrial-600 rounded-2xl shadow-2xl p-4 w-80">
+              <GraphFilter
+                topology={{ nodes: graphData.nodes, edges: graphData.edges }}
+                onFilterApplied={handleFilterApplied}
+                onFilterCleared={handleFilterCleared}
+              />
             </div>
-          </div>
+          </Panel>
+        )}
+
+        {/* Floating Node Info Panel */}
+        {selectedNodeId && selectedEquipment && (
+          <Panel position="top-right" className="mt-20 mr-4 animate-slide-in">
+            <div className="bg-gradient-to-br from-industrial-800/95 to-industrial-900/95 backdrop-blur-md border border-accent-blue/30 rounded-2xl shadow-2xl p-4 w-80">
+              {/* Node Header */}
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-accent-blue/20 border-2 border-accent-blue flex items-center justify-center">
+                    <Wrench className="w-5 h-5 text-accent-blue" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-accent-blue font-mono">
+                      {selectedEquipment.tag}
+                    </h3>
+                    <p className="text-xs text-industrial-400">{selectedEquipment.type}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedNodeId(null)}
+                  className="p-1.5 hover:bg-industrial-700 rounded-lg transition-colors"
+                >
+                  <X className="w-4 h-4 text-industrial-400" />
+                </button>
+              </div>
+
+              {/* Maintenance Button - Hero */}
+              <button
+                onClick={() => setShowMaintenanceChecklist(true)}
+                className="w-full bg-gradient-to-r from-accent-cyan via-accent-blue to-accent-cyan bg-size-200 bg-pos-0 hover:bg-pos-100 text-white font-bold py-3 px-4 rounded-xl shadow-lg hover:shadow-accent-blue/50 transition-all duration-300 flex items-center justify-center gap-2 mb-4"
+              >
+                <Wrench className="w-5 h-5" />
+                <span>Generate Maintenance Checklist</span>
+              </button>
+
+              {/* Tag Analysis - Compact */}
+              {tagAnalysis && (
+                <div className="bg-industrial-900/50 rounded-xl p-3 border border-industrial-700">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-6 h-6 rounded-full bg-accent-blue/20 flex items-center justify-center">
+                      <span className="text-xs">🤖</span>
+                    </div>
+                    <span className="text-xs font-semibold text-industrial-300">AI Analysis</span>
+                  </div>
+                  <p className="text-xs text-industrial-400 leading-relaxed line-clamp-3">
+                    {tagAnalysis.definition}
+                  </p>
+                </div>
+              )}
+            </div>
+          </Panel>
+        )}
+
+        {/* Floating Legend - Bottom Left */}
+        <Panel position="bottom-left" className="mb-20 ml-4">
+          <button
+            onClick={() => setIsLegendCollapsed(!isLegendCollapsed)}
+            className="bg-industrial-800/95 backdrop-blur-md border border-industrial-600 rounded-full px-4 py-2 shadow-2xl hover:scale-105 transition-all flex items-center gap-2"
+          >
+            <div className="flex items-center gap-1.5">
+              <div className="w-2 h-2 rounded-full bg-accent-blue" />
+              <div className="w-2 h-2 rounded-full bg-accent-cyan" />
+              <div className="w-2 h-2 rounded-full bg-accent-green" />
+            </div>
+            <span className="text-xs font-semibold text-industrial-200">Legend</span>
+            {isLegendCollapsed ? (
+              <ChevronUp className="w-3 h-3 text-industrial-400" />
+            ) : (
+              <ChevronDown className="w-3 h-3 text-industrial-400" />
+            )}
+          </button>
+          
+          {!isLegendCollapsed && (
+            <div className="mt-2 bg-industrial-800/95 backdrop-blur-md border border-industrial-600 rounded-xl shadow-2xl p-3 animate-slide-in">
+              <div className="space-y-2">
+                <LegendItem color="#61afef" shape="circle" label="Instruments" />
+                <LegendItem color="#56b6c2" shape="circle" label="Valves" />
+                <LegendItem color="#98c379" shape="square" label="Equipment" />
+                <LegendItem color="#e5c07b" shape="square" label="Pumps" />
+                <LegendItem color="#c678dd" shape="square" label="Other" />
+              </div>
+            </div>
+          )}
         </Panel>
 
         {/* Engineering Q&A Assistant */}
         <ChatPanel nodes={nodes} edges={edges} />
       </ReactFlow>
+      
+      {/* Maintenance Checklist Modal */}
+      {showMaintenanceChecklist && selectedEquipment && (
+        <MaintenanceChecklist
+          equipmentType={selectedEquipment.type}
+          equipmentTag={selectedEquipment.tag}
+          equipmentDescription={selectedEquipment.description}
+          onClose={() => setShowMaintenanceChecklist(false)}
+        />
+      )}
     </div>
   );
 };

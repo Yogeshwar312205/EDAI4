@@ -42,22 +42,22 @@ class HazOpSimulator:
     HazOp Failure Simulator using Gemini AI with structured outputs
     """
     
-    def __init__(self, api_key: str = None, model: str = "gemini-1.5-flash"):
+    def __init__(self, api_key: str = None, model: str = "gemini-2.5-flash"):
         """
         Initialize HazOp Simulator
         
         Args:
             api_key: Google Gemini API key
-            model: Gemini model to use (default: gemini-1.5-flash)
+            model: Gemini model to use (default: gemini-2.5-flash, was gemini-1.5-flash but deprecated)
         """
         self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
         if not self.api_key:
             raise ValueError("GOOGLE_API_KEY not found in environment")
         
-        # Remove 'models/' prefix if present
+        # Remove 'models/' prefix if present (OLD API adds it automatically)
         self.model_name = model.replace("models/", "")
         
-        # Configure and initialize model (OLD API - same as working chatbot)
+        # Configure and initialize model (OLD API - deprecated but still works)
         genai.configure(api_key=self.api_key)
         self.model = genai.GenerativeModel(self.model_name)
         
