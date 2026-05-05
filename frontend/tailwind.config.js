@@ -33,6 +33,15 @@ export default {
         'glow-blue': '0 0 20px rgba(97, 175, 239, 0.3)',
         'glow-cyan': '0 0 20px rgba(86, 182, 194, 0.3)',
       },
+      keyframes: {
+        'slide-in': {
+          '0%': { transform: 'translateX(100%)', opacity: '0' },
+          '100%': { transform: 'translateX(0)', opacity: '1' },
+        },
+      },
+      animation: {
+        'slide-in': 'slide-in 0.3s ease-out',
+      },
     },
   },
   plugins: [],

@@ -10,7 +10,10 @@ import { GraphViewer } from '@/components/GraphViewer';
 import { DeliverablesPanel } from '@/components/DeliverablesPanel';
 import { DesignRulesDashboard } from '@/components/DesignRulesDashboard';
 import { FlowSimulator } from '@/components/FlowSimulator';
-import { Layers, Table, Network, Upload as UploadIcon, FileText, Shield, Workflow } from 'lucide-react';
+import { HazOpSimulator } from '@/components/HazOpSimulator';
+import { HazOpSimulatorWrapper } from '@/components/HazOpSimulatorWrapper';
+import { HazOpTest } from '@/components/HazOpTest';
+import { Layers, Table, Network, Upload as UploadIcon, FileText, Shield, Workflow, AlertTriangle } from 'lucide-react';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -31,6 +34,11 @@ function AppContent() {
   } = useAppStore();
 
   const hasData = processingResult !== null;
+
+  // Debug logging
+  console.log('AppContent render - activeView:', activeView);
+  console.log('AppContent render - graphData:', graphData);
+  console.log('AppContent render - hasData:', hasData);
 
   return (
     <div className="min-h-screen bg-industrial-950 text-industrial-200">
@@ -85,6 +93,12 @@ function AppContent() {
                   active={activeView === 'flow'}
                   onClick={() => setActiveView('flow')}
                 />
+                <TabButton
+                  icon={<AlertTriangle className="w-4 h-4" />}
+                  label="HazOp"
+                  active={activeView === 'hazop'}
+                  onClick={() => setActiveView('hazop')}
+                />
               </div>
             )}
           </div>
@@ -130,7 +144,7 @@ function AppContent() {
           <div className={`grid gap-6 h-[calc(100vh-180px)] ${
             activeView === 'canvas' ? 'grid-cols-1 lg:grid-cols-3' : 'grid-cols-1'
           }`}>
-            {/* Main View - Full width for graph/deliverables/rules/flow, 2/3 for canvas */}
+            {/* Main View - Full width for graph/deliverables/rules/flow/hazop, 2/3 for canvas */}
             <div className={`h-full overflow-hidden ${
               activeView === 'canvas' ? 'lg:col-span-2' : 'col-span-1'
             }`}>
@@ -154,6 +168,72 @@ function AppContent() {
                 <DesignRulesDashboard />
               ) : activeView === 'flow' ? (
                 <FlowSimulator />
+              ) : activeView === 'hazop' ? (
+                <div className="w-full h-full">
+                  {!graphData || !graphData.nodes || graphData.nodes.length === 0 ? (
+                    <div className="w-full h-full bg-industrial-800 rounded-lg border border-industrial-600 flex items-center justify-center">
+                      <div className="text-center p-8 max-w-md">
+                        <AlertTriangle className="w-16 h-16 text-yellow-400 mx-auto mb-4" />
+                        <h3 className="text-xl font-bold text-industrial-100 mb-2">No Graph Data Available</h3>
+                        <p className="text-industrial-400 mb-4">
+                          Please upload and process a P&ID first to generate the graph data needed for HazOp simulation.
+                        </p>
+                        <div className="text-left bg-industrial-900 p-4 rounded text-xs font-mono">
+                          <p className="text-industrial-500">Debug Info:</p>
+                          <p>graphData: {graphData ? 'exists' : 'null'}</p>
+                          {graphData && (
+                            <>
+                              <p>nodes: {graphData.nodes ? `array[${graphData.nodes.length}]` : 'null'}</p>
+                              <p>edges: {graphData.edges ? `array[${graphData.edges.length}]` : 'null'}</p>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <ReactFlowProvider>
+                      <HazOpSimulator
+                        initialNodes={graphData.nodes.map((node: any, index: number) => ({
+                          ...node,
+                          type: 'custom',  // Use custom node type
+                          position: node.position || { 
+                            x: (index % 5) * 200 + 100, 
+                            y: Math.floor(index / 5) * 150 + 100 
+                          },
+                          data: {
+                            ...node.data,
+                            label: node.data?.label || node.id,
+                            type: node.type || node.data?.type || 'equipment',
+                            tag: node.data?.tag || node.id,
+                            description: node.data?.description || `Equipment node ${node.id}`,
+                            status: 'normal'
+                          },
+                          style: {
+                            ...node.style
+                          }
+                        }))}
+                        initialEdges={(graphData.edges || []).map((edge: any) => ({
+                          ...edge,
+                          type: 'smoothstep',
+                          animated: false,
+                          style: {
+                            stroke: '#61afef',
+                            strokeWidth: 2,
+                            ...edge.style
+                          },
+                          labelStyle: {
+                            fill: '#abb2bf',
+                            fontSize: 12
+                          },
+                          labelBgStyle: {
+                            fill: '#1a1f29',
+                            fillOpacity: 0.9
+                          }
+                        }))}
+                      />
+                    </ReactFlowProvider>
+                  )}
+                </div>
               ) : (
                 <EmptyState message="No data available" />
               )}

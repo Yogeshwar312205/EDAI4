@@ -1,0 +1,65 @@
+═══════════════════════════════════════════════════════════════
+              🚨 BACKEND NOT RUNNING - START IT NOW!
+═══════════════════════════════════════════════════════════════
+
+ERROR: Frontend can't connect to backend
+CAUSE: Backend is not running on port 8000
+
+───────────────────────────────────────────────────────────────
+                    QUICK FIX (Choose One)
+───────────────────────────────────────────────────────────────
+
+OPTION 1: Double-click this file (Easiest!)
+START_BOTH.bat
+
+This will start BOTH frontend and backend automatically!
+
+───────────────────────────────────────────────────────────────
+
+OPTION 2: Manual Start (2 Terminals)
+
+Terminal 1 (Frontend - Already Running):
+cd D:\EDAI4\frontend
+npm run dev
+
+Terminal 2 (Backend - START THIS!):
+cd D:\EDAI4
+python -m uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
+
+───────────────────────────────────────────────────────────────
+                    VERIFY IT WORKS
+───────────────────────────────────────────────────────────────
+
+1. Backend should show:
+   INFO:     Application startup complete.
+
+2. Open browser: http://localhost:3000
+
+3. Upload P&ID - should work without proxy error!
+
+───────────────────────────────────────────────────────────────
+                    TROUBLESHOOTING
+───────────────────────────────────────────────────────────────
+
+If backend won't start:
+
+1. Check if port 8000 is in use:
+   netstat -ano | findstr :8000
+
+2. Kill the process:
+   taskkill /PID <PID> /F
+
+3. Start backend again
+
+═══════════════════════════════════════════════════════════════
+                    START BACKEND NOW!
+═══════════════════════════════════════════════════════════════
+
+EASIEST: Double-click START_BOTH.bat
+
+OR
+
+Run in new terminal:
+python -m uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
+
+═══════════════════════════════════════════════════════════════

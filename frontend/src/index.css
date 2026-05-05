@@ -84,3 +84,16 @@ code {
 .animate-fade-in {
   animation: fadeIn 0.3s ease-out;
 }
+
+/* HazOp Pulse Animation */
+@keyframes pulse {
+  0%, 100% {
+    box-shadow: 0 0 20px #ef4444, 0 0 40px #ef4444;
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 30px #ef4444, 0 0 60px #ef4444, 0 0 80px #ef4444;
+    transform: scale(1.05);
+  }
+}
+

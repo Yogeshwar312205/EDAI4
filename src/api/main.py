@@ -31,6 +31,8 @@ logger = logging.getLogger(__name__)
 # EDAI4 imports will be done lazily to avoid import errors if deps missing
 # Gemini analyzer import
 from src.api.gemini_analyzer import get_analyzer
+# HazOp simulator import
+from src.api.hazop_simulator import get_hazop_simulator, HazOpSimulationRequest, HazOpSimulationResponse
 
 
 # =============================================================================
@@ -1882,6 +1884,74 @@ async def compare_pids(
         print(f"Error comparing P&IDs: {e}")
         print(traceback.format_exc())
         raise HTTPException(500, f"Diff comparison failed: {str(e)}")
+
+
+# =============================================================================
+# HazOp Failure Simulator
+# =============================================================================
+
+@app.post("/api/simulate-hazop", response_model=HazOpSimulationResponse)
+async def simulate_hazop(request: HazOpSimulationRequest):
+    """
+    Simulate equipment failure and predict cascading effects using HazOp analysis.
+    
+    This endpoint uses Gemini AI to act as a senior HazOp safety engineer,
+    analyzing the P&ID topology to predict:
+    - Immediate hazards and dangers
+    - Cascading effects through connected equipment
+    - Affected nodes and edges
+    - Severity level
+    - Emergency response actions
+    
+    Args:
+        request: HazOpSimulationRequest with failed_node_id, failure_mode, and topology
+        
+    Returns:
+        HazOpSimulationResponse with structured predictions
+        
+    Example:
+        ```json
+        {
+            "failed_node_id": "V-101",
+            "failure_mode": "Stuck Closed",
+            "topology": {
+                "nodes": [...],
+                "edges": [...]
+            }
+        }
+        ```
+    """
+    try:
+        logger.info(f"HazOp simulation request: {request.failed_node_id} - {request.failure_mode}")
+        
+        # Get HazOp simulator instance
+        simulator = get_hazop_simulator()
+        
+        # Run simulation
+        result = simulator.simulate_failure(
+            failed_node_id=request.failed_node_id,
+            failure_mode=request.failure_mode,
+            topology=request.topology
+        )
+        
+        logger.info(f"HazOp simulation complete: {result.severity_level} severity")
+        
+        return result
+        
+    except ValueError as e:
+        logger.error(f"Configuration error: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"HazOp Simulator not configured: {str(e)}. Please set GOOGLE_API_KEY in .env file."
+        )
+    except Exception as e:
+        logger.error(f"HazOp simulation failed: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"HazOp simulation failed: {str(e)}"
+        )
 
 
 # =============================================================================
