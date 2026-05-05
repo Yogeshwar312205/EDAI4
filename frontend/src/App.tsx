@@ -7,13 +7,14 @@ import { FileUpload } from '@/components/FileUpload';
 import { InteractiveCanvas } from '@/components/InteractiveCanvas';
 import { DataTable } from '@/components/DataTable';
 import { GraphViewer } from '@/components/GraphViewer';
+import { EditableGraphViewer } from '@/components/EditableGraphViewer';
 import { DeliverablesPanel } from '@/components/DeliverablesPanel';
 import { DesignRulesDashboard } from '@/components/DesignRulesDashboard';
 import { FlowSimulator } from '@/components/FlowSimulator';
 import { HazOpSimulator } from '@/components/HazOpSimulator';
 import { HazOpSimulatorWrapper } from '@/components/HazOpSimulatorWrapper';
 import { HazOpTest } from '@/components/HazOpTest';
-import { Layers, Table, Network, Upload as UploadIcon, FileText, Shield, Workflow, AlertTriangle } from 'lucide-react';
+import { Layers, Table, Network, Upload as UploadIcon, FileText, Shield, Workflow, AlertTriangle, Edit } from 'lucide-react';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -94,6 +95,12 @@ function AppContent() {
                   onClick={() => setActiveView('flow')}
                 />
                 <TabButton
+                  icon={<Edit className="w-4 h-4" />}
+                  label="Editor"
+                  active={activeView === 'editor'}
+                  onClick={() => setActiveView('editor')}
+                />
+                <TabButton
                   icon={<AlertTriangle className="w-4 h-4" />}
                   label="HazOp"
                   active={activeView === 'hazop'}
@@ -168,6 +175,40 @@ function AppContent() {
                 <DesignRulesDashboard />
               ) : activeView === 'flow' ? (
                 <FlowSimulator />
+              ) : activeView === 'editor' ? (
+                graphData && graphData.nodes && graphData.nodes.length > 0 ? (
+                  <ReactFlowProvider>
+                    <EditableGraphViewer
+                      initialNodes={graphData.nodes.map((node: any, index: number) => ({
+                        ...node,
+                        position: node.position || { 
+                          x: (index % 5) * 200 + 100, 
+                          y: Math.floor(index / 5) * 150 + 100 
+                        },
+                        data: {
+                          ...node.data,
+                          label: node.data?.label || node.id,
+                          type: node.type || node.data?.type || 'equipment',
+                        },
+                        style: {
+                          ...node.style
+                        }
+                      }))}
+                      initialEdges={(graphData.edges || []).map((edge: any) => ({
+                        ...edge,
+                        type: 'smoothstep',
+                        animated: false,
+                        style: {
+                          stroke: '#61afef',
+                          strokeWidth: 2,
+                          ...edge.style
+                        },
+                      }))}
+                    />
+                  </ReactFlowProvider>
+                ) : (
+                  <EmptyState message="No Graph Data Available for Editing" />
+                )
               ) : activeView === 'hazop' ? (
                 <div className="w-full h-full">
                   {!graphData || !graphData.nodes || graphData.nodes.length === 0 ? (

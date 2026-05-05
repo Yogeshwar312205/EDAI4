@@ -2087,6 +2087,120 @@ async def generate_maintenance_checklist(request: Dict[str, Any]):
         )
 
 
+@app.post("/api/save-topology")
+async def save_topology(topology: Dict[str, Any]):
+    """
+    Save P&ID topology to file
+    
+    Saves the edited topology (nodes and edges) to a JSON file
+    """
+    try:
+        # Create output directory if it doesn't exist
+        output_dir = Path("data/output/topologies")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"topology_{timestamp}.json"
+        filepath = output_dir / filename
+        
+        # Add metadata
+        topology_with_metadata = {
+            **topology,
+            "metadata": {
+                "savedAt": datetime.now().isoformat(),
+                "nodeCount": len(topology.get("nodes", [])),
+                "edgeCount": len(topology.get("edges", [])),
+                "version": "1.0.0"
+            }
+        }
+        
+        # Save to file
+        with open(filepath, 'w') as f:
+            json.dump(topology_with_metadata, f, indent=2)
+        
+        logger.info(f"Topology saved to {filepath}")
+        
+        return {
+            "success": True,
+            "message": "Topology saved successfully",
+            "filename": filename,
+            "filepath": str(filepath),
+            "nodeCount": len(topology.get("nodes", [])),
+            "edgeCount": len(topology.get("edges", []))
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to save topology: {e}")
+        raise HTTPException(500, f"Failed to save topology: {str(e)}")
+
+
+@app.get("/api/load-topology/{filename}")
+async def load_topology(filename: str):
+    """
+    Load P&ID topology from file
+    
+    Loads a previously saved topology JSON file
+    """
+    try:
+        filepath = Path("data/output/topologies") / filename
+        
+        if not filepath.exists():
+            raise HTTPException(404, f"Topology file not found: {filename}")
+        
+        with open(filepath, 'r') as f:
+            topology = json.load(f)
+        
+        logger.info(f"Topology loaded from {filepath}")
+        
+        return topology
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to load topology: {e}")
+        raise HTTPException(500, f"Failed to load topology: {str(e)}")
+
+
+@app.get("/api/list-topologies")
+async def list_topologies():
+    """
+    List all saved topologies
+    
+    Returns a list of all saved topology files with metadata
+    """
+    try:
+        output_dir = Path("data/output/topologies")
+        
+        if not output_dir.exists():
+            return {"topologies": []}
+        
+        topologies = []
+        for filepath in output_dir.glob("topology_*.json"):
+            try:
+                with open(filepath, 'r') as f:
+                    data = json.load(f)
+                
+                topologies.append({
+                    "filename": filepath.name,
+                    "savedAt": data.get("metadata", {}).get("savedAt"),
+                    "nodeCount": data.get("metadata", {}).get("nodeCount", 0),
+                    "edgeCount": data.get("metadata", {}).get("edgeCount", 0),
+                })
+            except Exception as e:
+                logger.warning(f"Failed to read topology file {filepath}: {e}")
+                continue
+        
+        # Sort by saved date (newest first)
+        topologies.sort(key=lambda x: x.get("savedAt", ""), reverse=True)
+        
+        return {"topologies": topologies}
+        
+    except Exception as e:
+        logger.error(f"Failed to list topologies: {e}")
+        raise HTTPException(500, f"Failed to list topologies: {str(e)}")
+
+
 # =============================================================================
 # Run Server
 # =============================================================================
