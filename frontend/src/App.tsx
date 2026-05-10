@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactFlowProvider } from 'reactflow';
 import { useAppStore } from '@/store/useAppStore';
 import { FileUpload } from '@/components/FileUpload';
-import { InteractiveCanvas } from '@/components/InteractiveCanvas';
+import { InteractiveCanvasDOM } from '@/components/InteractiveCanvasDOM';
 import { DataTable } from '@/components/DataTable';
 import { GraphViewer } from '@/components/GraphViewer';
 import { EditableGraphViewer } from '@/components/EditableGraphViewer';
@@ -12,8 +12,6 @@ import { DeliverablesPanel } from '@/components/DeliverablesPanel';
 import { DesignRulesDashboard } from '@/components/DesignRulesDashboard';
 import { FlowSimulator } from '@/components/FlowSimulator';
 import { HazOpSimulator } from '@/components/HazOpSimulator';
-import { HazOpSimulatorWrapper } from '@/components/HazOpSimulatorWrapper';
-import { HazOpTest } from '@/components/HazOpTest';
 import { Layers, Table, Network, Upload as UploadIcon, FileText, Shield, Workflow, AlertTriangle, Edit } from 'lucide-react';
 
 const queryClient = new QueryClient({
@@ -156,7 +154,7 @@ function AppContent() {
               activeView === 'canvas' ? 'lg:col-span-2' : 'col-span-1'
             }`}>
               {activeView === 'canvas' && uploadedImage && processingResult ? (
-                <InteractiveCanvas
+                <InteractiveCanvasDOM
                   imageUrl={uploadedImage}
                   detections={processingResult.detections}
                   imageSize={{ width: 1200, height: 800 }}
