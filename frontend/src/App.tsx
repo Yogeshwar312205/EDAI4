@@ -3,6 +3,7 @@ import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactFlowProvider } from 'reactflow';
 import { useAppStore } from '@/store/useAppStore';
+import { useHistoryStore } from '@/store/useHistoryStore';
 import { FileUpload } from '@/components/FileUpload';
 import { InteractiveCanvasDOM } from '@/components/InteractiveCanvasDOM';
 import { DataTable } from '@/components/DataTable';
@@ -12,8 +13,9 @@ import { DeliverablesPanel } from '@/components/DeliverablesPanel';
 import { DesignRulesDashboard } from '@/components/DesignRulesDashboard';
 import { FlowSimulator } from '@/components/FlowSimulator';
 import { HazOpSimulator } from '@/components/HazOpSimulator';
+import { HistoryPanel } from '@/components/HistoryPanel';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { Layers, Table, Network, Upload as UploadIcon, FileText, Shield, Workflow, AlertTriangle, Edit } from 'lucide-react';
+import { Layers, Table, Network, Upload as UploadIcon, FileText, Shield, Workflow, AlertTriangle, Edit, History } from 'lucide-react';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -32,6 +34,13 @@ function AppContent() {
     activeView,
     setActiveView,
   } = useAppStore();
+  
+  const { initialize } = useHistoryStore();
+
+  // Initialize history store on mount
+  React.useEffect(() => {
+    initialize();
+  }, [initialize]);
 
   const hasData = processingResult !== null;
 
@@ -104,6 +113,12 @@ function AppContent() {
                   label="HazOp"
                   active={activeView === 'hazop'}
                   onClick={() => setActiveView('hazop')}
+                />
+                <TabButton
+                  icon={<History className="w-4 h-4" />}
+                  label="History"
+                  active={activeView === 'history'}
+                  onClick={() => setActiveView('history')}
                 />
               </div>
             )}
@@ -178,21 +193,62 @@ function AppContent() {
                 graphData && graphData.nodes && graphData.nodes.length > 0 ? (
                   <ReactFlowProvider>
                     <EditableGraphViewer
-                      initialNodes={graphData.nodes.map((node: any, index: number) => ({
-                        ...node,
-                        position: node.position || { 
-                          x: (index % 5) * 200 + 100, 
-                          y: Math.floor(index / 5) * 150 + 100 
-                        },
-                        data: {
-                          ...node.data,
-                          label: node.data?.label || node.id,
-                          type: node.type || node.data?.type || 'equipment',
-                        },
-                        style: {
-                          ...node.style
-                        }
-                      }))}
+                      initialNodes={graphData.nodes.map((node: any, index: number) => {
+                        // Create a meaningful label from available data
+                        const tag = node.tag || node.data?.tag;
+                        const label = node.label || node.data?.label;
+                        const type = node.type || node.data?.type || 'equipment';
+                        
+                        // Priority: tag > label > type + index
+                        let displayLabel = tag || label || `${type}-${index + 1}`;
+                        
+                        // Determine node color based on type
+                        const getNodeColor = (nodeType: string) => {
+                          const lowerType = nodeType.toLowerCase();
+                          if (lowerType.includes('instrument')) return '#61afef';
+                          if (lowerType.includes('valve')) return '#56b6c2';
+                          if (lowerType.includes('pump')) return '#e5c07b';
+                          if (lowerType.includes('equipment')) return '#98c379';
+                          if (lowerType.includes('tank') || lowerType.includes('vessel')) return '#d19a66';
+                          return '#c678dd';
+                        };
+                        
+                        const color = getNodeColor(type);
+                        
+                        return {
+                          ...node,
+                          position: node.position || { 
+                            x: (index % 5) * 200 + 100, 
+                            y: Math.floor(index / 5) * 150 + 100 
+                          },
+                          data: {
+                            ...node.data,
+                            label: displayLabel,
+                            tag: tag,
+                            type: type,
+                            // Store original data for reference
+                            originalLabel: label,
+                            originalType: type,
+                          },
+                          style: {
+                            background: `linear-gradient(135deg, ${color} 0%, ${color}dd 100%)`,
+                            color: '#ffffff',
+                            border: `2px solid ${color}`,
+                            borderRadius: '8px',
+                            padding: '12px',
+                            fontSize: '13px',
+                            fontWeight: 600,
+                            minWidth: 140,
+                            minHeight: 70,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            boxShadow: `0 4px 6px ${color}40`,
+                            textAlign: 'center',
+                            ...node.style
+                          }
+                        };
+                      })}
                       initialEdges={(graphData.edges || []).map((edge: any) => ({
                         ...edge,
                         type: 'smoothstep',
@@ -274,6 +330,8 @@ function AppContent() {
                     </ReactFlowProvider>
                   )}
                 </div>
+              ) : activeView === 'history' ? (
+                <HistoryPanel />
               ) : (
                 <EmptyState message="No data available" />
               )}

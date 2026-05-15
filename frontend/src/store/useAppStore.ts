@@ -11,7 +11,7 @@ interface AppState {
   // UI state
   selectedNodeId: string | null;
   hoveredNodeId: string | null;
-  activeView: 'canvas' | 'graph' | 'deliverables' | 'rules' | 'flow' | 'hazop' | 'editor';
+  activeView: 'canvas' | 'graph' | 'deliverables' | 'rules' | 'flow' | 'hazop' | 'editor' | 'history';
   
   // Actions
   setUploadedImage: (image: string | null) => void;
@@ -19,7 +19,7 @@ interface AppState {
   setGraphData: (data: GraphData | null) => void;
   setSelectedNodeId: (id: string | null) => void;
   setHoveredNodeId: (id: string | null) => void;
-  setActiveView: (view: 'canvas' | 'graph' | 'deliverables' | 'rules' | 'flow' | 'hazop' | 'editor') => void;
+  setActiveView: (view: 'canvas' | 'graph' | 'deliverables' | 'rules' | 'flow' | 'hazop' | 'editor' | 'history') => void;
   
   // Computed getters
   getDetectionById: (id: string) => DetectionResult | undefined;

@@ -144,23 +144,25 @@ export const EditableGraphViewer: React.FC<EditableGraphViewerProps> = ({
         type: 'default',
         position,
         data: {
-          label: `${label}-${nodeIdCounter.current - 1000}`,
+          label: `${label}`,
           type: type,
+          tag: `${label}-${nodeIdCounter.current - 1000}`,
         },
         style: {
           background: `linear-gradient(135deg, ${color} 0%, ${color}dd 100%)`,
           color: '#ffffff',
           border: `2px solid ${color}`,
           borderRadius: '8px',
-          padding: 10,
-          fontSize: 12,
+          padding: '12px',
+          fontSize: '13px',
           fontWeight: 600,
-          width: 120,
-          height: 60,
+          minWidth: 140,
+          minHeight: 70,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           boxShadow: `0 4px 6px ${color}40`,
+          textAlign: 'center',
         },
       };
 
@@ -172,7 +174,13 @@ export const EditableGraphViewer: React.FC<EditableGraphViewerProps> = ({
   // Handle node selection
   const onNodeClick: NodeMouseHandler = useCallback((_, node) => {
     setSelectedNodes([node.id]);
+    console.log('Selected node:', node);
   }, []);
+  
+  // Get selected node details
+  const selectedNode = selectedNodes.length === 1 
+    ? nodes.find(n => n.id === selectedNodes[0]) 
+    : null;
 
   // Handle edge selection
   const onEdgeClick = useCallback((_, edge: Edge) => {
@@ -501,6 +509,75 @@ export const EditableGraphViewer: React.FC<EditableGraphViewerProps> = ({
             </div>
           </div>
         </Panel>
+
+        {/* Node Info Panel (when node is selected) */}
+        {selectedNode && (
+          <Panel position="top-left" className="ml-4 mt-4">
+            <div className="bg-industrial-800/95 backdrop-blur-md border border-industrial-600 rounded-xl p-4 shadow-2xl min-w-[250px]">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-bold text-industrial-100 flex items-center gap-2">
+                  <div 
+                    className="w-3 h-3 rounded-full" 
+                    style={{ 
+                      backgroundColor: selectedNode.style?.border?.toString().split(' ')[2] || '#61afef' 
+                    }}
+                  />
+                  Node Details
+                </h3>
+                <button
+                  onClick={() => setSelectedNodes([])}
+                  className="text-industrial-400 hover:text-industrial-200 transition-colors"
+                >
+                  ×
+                </button>
+              </div>
+              
+              <div className="space-y-2 text-xs">
+                {/* Label */}
+                <div>
+                  <span className="text-industrial-400">Label:</span>
+                  <div className="text-industrial-100 font-semibold mt-1 bg-industrial-900/50 px-2 py-1 rounded">
+                    {selectedNode.data?.label || 'N/A'}
+                  </div>
+                </div>
+                
+                {/* Tag */}
+                {selectedNode.data?.tag && (
+                  <div>
+                    <span className="text-industrial-400">Tag:</span>
+                    <div className="text-accent-cyan font-mono font-semibold mt-1 bg-industrial-900/50 px-2 py-1 rounded">
+                      {selectedNode.data.tag}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Type */}
+                <div>
+                  <span className="text-industrial-400">Type:</span>
+                  <div className="text-industrial-100 font-medium mt-1 bg-industrial-900/50 px-2 py-1 rounded capitalize">
+                    {selectedNode.data?.type || 'Unknown'}
+                  </div>
+                </div>
+                
+                {/* ID */}
+                <div>
+                  <span className="text-industrial-400">ID:</span>
+                  <div className="text-industrial-300 font-mono text-[10px] mt-1 bg-industrial-900/50 px-2 py-1 rounded truncate">
+                    {selectedNode.id}
+                  </div>
+                </div>
+                
+                {/* Position */}
+                <div>
+                  <span className="text-industrial-400">Position:</span>
+                  <div className="text-industrial-300 font-mono text-[10px] mt-1 bg-industrial-900/50 px-2 py-1 rounded">
+                    x: {selectedNode.position.x.toFixed(0)}, y: {selectedNode.position.y.toFixed(0)}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Panel>
+        )}
 
         {/* Instructions (only in edit mode) */}
         {isEditMode && (

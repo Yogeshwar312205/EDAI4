@@ -4,10 +4,14 @@ import { Upload, Loader2, CheckCircle, XCircle } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import { edaiAPI } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
+import { useHistoryStore } from '@/store/useHistoryStore';
 
 export const FileUpload: React.FC = () => {
   const [isDragging, setIsDragging] = useState(false);
+  const [currentFileName, setCurrentFileName] = useState<string>('');
+  const [currentImageUrl, setCurrentImageUrl] = useState<string>('');
   const { setUploadedImage, setProcessingResult, setGraphData } = useAppStore();
+  const { addEntry } = useHistoryStore();
 
   const uploadMutation = useMutation({
     mutationFn: edaiAPI.processImage,
@@ -26,10 +30,22 @@ export const FileUpload: React.FC = () => {
           console.warn('Invalid graph data received:', graphData);
           setGraphData(null);
         }
+        
+        // Save to history
+        if (currentFileName && currentImageUrl) {
+          console.log('[FileUpload] Saving to history:', currentFileName);
+          await addEntry(currentFileName, currentImageUrl, data, graphData);
+        }
       } catch (error) {
         console.error('Failed to fetch graph:', error);
         // Don't fail the whole upload if graph fetch fails
         setGraphData(null);
+        
+        // Still save to history even if graph fetch failed
+        if (currentFileName && currentImageUrl) {
+          console.log('[FileUpload] Saving to history (no graph):', currentFileName);
+          await addEntry(currentFileName, currentImageUrl, data, null);
+        }
       }
     },
     onError: (error) => {
@@ -44,10 +60,15 @@ export const FileUpload: React.FC = () => {
         return;
       }
 
+      // Store filename for history
+      setCurrentFileName(file.name);
+
       // Create preview URL
       const reader = new FileReader();
       reader.onload = (e) => {
-        setUploadedImage(e.target?.result as string);
+        const imageUrl = e.target?.result as string;
+        setCurrentImageUrl(imageUrl);
+        setUploadedImage(imageUrl);
       };
       reader.readAsDataURL(file);
 
