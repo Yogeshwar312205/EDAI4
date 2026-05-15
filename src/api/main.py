@@ -495,34 +495,30 @@ async def health():
 # Helper Functions for Coordinate Conversion
 # =============================================================================
 
-def yolo_to_percentages(box, orig_width: int, orig_height: int) -> dict:
+def yolo_to_percentages(box) -> dict:
     """
-    Convert YOLO bounding box to top-left percentages.
+    Convert YOLO bounding box to top-left percentages using xyxyn.
+    
+    FOOLPROOF METHOD: Uses YOLOv8's built-in normalized coordinates (xyxyn)
+    which gives perfect percentages (0.0 to 1.0) with NO manual math needed!
     
     Args:
-        box: YOLO box object with xywh attribute
-        orig_width: Original image width
-        orig_height: Original image height
+        box: YOLO box object with xyxyn attribute
     
     Returns:
         Dictionary with pct_x, pct_y, pct_width, pct_height (0.0 to 1.0)
     """
-    # Get YOLO format: center_x, center_y, width, height (in pixels)
-    x_c, y_c, w, h = box.xywh[0].cpu().numpy()
+    # xyxyn gives [x_min, y_min, x_max, y_max] as perfect percentages (0.0 to 1.0)
+    # This is ALREADY normalized to the original image dimensions!
+    x1_pct, y1_pct, x2_pct, y2_pct = box.xyxyn[0].cpu().tolist()
     
-    # Convert center to top-left corner
-    top_left_x = x_c - (w / 2)
-    top_left_y = y_c - (h / 2)
+    # Calculate width and height as percentages
+    pct_width = x2_pct - x1_pct
+    pct_height = y2_pct - y1_pct
     
-    # Convert to percentages (0.0 to 1.0)
-    pct_x = float(top_left_x / orig_width)
-    pct_y = float(top_left_y / orig_height)
-    pct_width = float(w / orig_width)
-    pct_height = float(h / orig_height)
-    
-    # Clamp to valid range [0.0, 1.0]
-    pct_x = max(0.0, min(1.0, pct_x))
-    pct_y = max(0.0, min(1.0, pct_y))
+    # Clamp to valid range [0.0, 1.0] (should already be valid, but just in case)
+    pct_x = max(0.0, min(1.0, x1_pct))
+    pct_y = max(0.0, min(1.0, y1_pct))
     pct_width = max(0.0, min(1.0 - pct_x, pct_width))
     pct_height = max(0.0, min(1.0 - pct_y, pct_height))
     
