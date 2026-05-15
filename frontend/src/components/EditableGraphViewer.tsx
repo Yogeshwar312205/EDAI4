@@ -8,7 +8,7 @@
  * - Save topology to JSON
  */
 
-import React, { useCallback, useState, useRef, useEffect } from 'react';
+import React, { useCallback, useState, useRef, useEffect, useMemo } from 'react';
 import ReactFlow, {
   Node,
   Edge,
@@ -39,6 +39,8 @@ import {
 import { ComponentPalette } from './ComponentPalette';
 import { useAppStore } from '@/store/useAppStore';
 import axios from 'axios';
+import { EnhancedNode } from './nodes/EnhancedNode';
+import { generateDefaultTag, getNodeColor } from '@/utils/nodeUtils';
 
 interface EditableGraphViewerProps {
   initialNodes: Node[];
@@ -64,6 +66,14 @@ export const EditableGraphViewer: React.FC<EditableGraphViewerProps> = ({
 
   // Counter for generating unique IDs
   const nodeIdCounter = useRef(1000);
+
+  // Define custom node types
+  const nodeTypes = useMemo(
+    () => ({
+      enhanced: EnhancedNode,
+    }),
+    []
+  );
 
   // Update nodes when initialNodes change
   useEffect(() => {
@@ -126,43 +136,24 @@ export const EditableGraphViewer: React.FC<EditableGraphViewerProps> = ({
       const newNodeId = `${type}-${nodeIdCounter.current++}`;
 
       // Determine node color based on type
-      const getNodeColor = (nodeType: string) => {
-        switch (nodeType) {
-          case 'instrument': return '#61afef';
-          case 'valve': return '#56b6c2';
-          case 'pump': return '#e5c07b';
-          case 'equipment': return '#98c379';
-          default: return '#c678dd';
-        }
-      };
-
       const color = getNodeColor(type);
 
-      // Create new node
+      // Generate default ISA tag
+      const defaultTag = generateDefaultTag(type, nodeIdCounter.current - 1000);
+
+      // Create new node with enhanced type
       const newNode: Node = {
         id: newNodeId,
-        type: 'default',
+        type: 'enhanced', // Use our custom enhanced node
         position,
         data: {
           label: `${label}`,
           type: type,
-          tag: `${label}-${nodeIdCounter.current - 1000}`,
+          tag: defaultTag,
         },
         style: {
-          background: `linear-gradient(135deg, ${color} 0%, ${color}dd 100%)`,
-          color: '#ffffff',
-          border: `2px solid ${color}`,
-          borderRadius: '8px',
-          padding: '12px',
-          fontSize: '13px',
-          fontWeight: 600,
-          minWidth: 140,
-          minHeight: 70,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          boxShadow: `0 4px 6px ${color}40`,
-          textAlign: 'center',
+          width: 140,
+          height: 80,
         },
       };
 
@@ -171,8 +162,8 @@ export const EditableGraphViewer: React.FC<EditableGraphViewerProps> = ({
     [reactFlowInstance, setNodes]
   );
 
-  // Handle node selection
-  const onNodeClick: NodeMouseHandler = useCallback((_, node) => {
+  // Handle node click
+  const onNodeClick: NodeMouseHandler = useCallback((event, node) => {
     setSelectedNodes([node.id]);
     console.log('Selected node:', node);
   }, []);
@@ -390,6 +381,7 @@ export const EditableGraphViewer: React.FC<EditableGraphViewerProps> = ({
         onInit={setReactFlowInstance}
         onDrop={onDrop}
         onDragOver={onDragOver}
+        nodeTypes={nodeTypes}
         nodesDraggable={isEditMode}
         nodesConnectable={isEditMode}
         elementsSelectable={isEditMode}
@@ -513,13 +505,13 @@ export const EditableGraphViewer: React.FC<EditableGraphViewerProps> = ({
         {/* Node Info Panel (when node is selected) */}
         {selectedNode && (
           <Panel position="top-left" className="ml-4 mt-4">
-            <div className="bg-industrial-800/95 backdrop-blur-md border border-industrial-600 rounded-xl p-4 shadow-2xl min-w-[250px]">
+            <div className="bg-industrial-800/95 backdrop-blur-md border border-industrial-600 rounded-xl p-4 shadow-2xl min-w-[280px]">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-bold text-industrial-100 flex items-center gap-2">
                   <div 
                     className="w-3 h-3 rounded-full" 
                     style={{ 
-                      backgroundColor: selectedNode.style?.border?.toString().split(' ')[2] || '#61afef' 
+                      backgroundColor: getNodeColor(selectedNode.data?.type || 'other')
                     }}
                   />
                   Node Details
@@ -532,29 +524,27 @@ export const EditableGraphViewer: React.FC<EditableGraphViewerProps> = ({
                 </button>
               </div>
               
-              <div className="space-y-2 text-xs">
+              <div className="space-y-2.5 text-xs">
+                {/* Tag */}
+                <div>
+                  <span className="text-industrial-400">ISA Tag:</span>
+                  <div className="text-accent-cyan font-bold font-mono mt-1 bg-industrial-900/50 px-3 py-2 rounded text-sm">
+                    {selectedNode.data?.tag || 'UNTAGGED'}
+                  </div>
+                </div>
+                
                 {/* Label */}
                 <div>
                   <span className="text-industrial-400">Label:</span>
-                  <div className="text-industrial-100 font-semibold mt-1 bg-industrial-900/50 px-2 py-1 rounded">
+                  <div className="text-industrial-100 font-semibold mt-1 bg-industrial-900/50 px-3 py-2 rounded">
                     {selectedNode.data?.label || 'N/A'}
                   </div>
                 </div>
                 
-                {/* Tag */}
-                {selectedNode.data?.tag && (
-                  <div>
-                    <span className="text-industrial-400">Tag:</span>
-                    <div className="text-accent-cyan font-mono font-semibold mt-1 bg-industrial-900/50 px-2 py-1 rounded">
-                      {selectedNode.data.tag}
-                    </div>
-                  </div>
-                )}
-                
                 {/* Type */}
                 <div>
                   <span className="text-industrial-400">Type:</span>
-                  <div className="text-industrial-100 font-medium mt-1 bg-industrial-900/50 px-2 py-1 rounded capitalize">
+                  <div className="text-industrial-100 font-medium mt-1 bg-industrial-900/50 px-3 py-2 rounded capitalize">
                     {selectedNode.data?.type || 'Unknown'}
                   </div>
                 </div>
@@ -562,7 +552,7 @@ export const EditableGraphViewer: React.FC<EditableGraphViewerProps> = ({
                 {/* ID */}
                 <div>
                   <span className="text-industrial-400">ID:</span>
-                  <div className="text-industrial-300 font-mono text-[10px] mt-1 bg-industrial-900/50 px-2 py-1 rounded truncate">
+                  <div className="text-industrial-300 font-mono text-[10px] mt-1 bg-industrial-900/50 px-3 py-2 rounded truncate">
                     {selectedNode.id}
                   </div>
                 </div>
@@ -570,10 +560,31 @@ export const EditableGraphViewer: React.FC<EditableGraphViewerProps> = ({
                 {/* Position */}
                 <div>
                   <span className="text-industrial-400">Position:</span>
-                  <div className="text-industrial-300 font-mono text-[10px] mt-1 bg-industrial-900/50 px-2 py-1 rounded">
+                  <div className="text-industrial-300 font-mono text-[10px] mt-1 bg-industrial-900/50 px-3 py-2 rounded">
                     x: {selectedNode.position.x.toFixed(0)}, y: {selectedNode.position.y.toFixed(0)}
                   </div>
                 </div>
+              </div>
+
+              {/* Edit Tag Button */}
+              <div className="mt-4 pt-3 border-t border-industrial-700">
+                <button
+                  className="w-full px-3 py-2 bg-accent-blue/20 hover:bg-accent-blue/30 text-accent-blue font-semibold rounded-lg transition-colors text-xs"
+                  onClick={() => {
+                    const newTag = prompt('Enter new ISA tag:', selectedNode.data?.tag || '');
+                    if (newTag) {
+                      setNodes((nds) =>
+                        nds.map((node) =>
+                          node.id === selectedNode.id
+                            ? { ...node, data: { ...node.data, tag: newTag.toUpperCase() } }
+                            : node
+                        )
+                      );
+                    }
+                  }}
+                >
+                  Edit ISA Tag
+                </button>
               </div>
             </div>
           </Panel>
