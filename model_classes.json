@@ -1,0 +1,18 @@
+{
+  "0": "valve.ball",
+  "1": "valve.gate",
+  "2": "valve.globe",
+  "3": "valve.butterfly",
+  "4": "valve.check",
+  "5": "valve.plug",
+  "6": "valve.control",
+  "7": "valve.safety_relief",
+  "8": "valve.general",
+  "9": "equipment.pump",
+  "10": "equipment.compressor_blower",
+  "11": "fitting.blind",
+  "12": "fitting.reducer",
+  "13": "instrument.bubble",
+  "14": "instrument.inline",
+  "15": "line.flow_arrow"
+}

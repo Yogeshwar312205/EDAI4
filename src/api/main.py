@@ -40,10 +40,14 @@ from src.api.hazop_simulator import get_hazop_simulator, HazOpSimulationRequest,
 # =============================================================================
 
 class DetectionResult(BaseModel):
-    """Single detection result."""
+    """Single detection result with percentage-based coordinates."""
     class_name: str
     confidence: float
-    bbox: Dict[str, float]
+    # Percentage coordinates (0.0 to 1.0) - Backend does all the math!
+    pct_x: float  # Top-left X as percentage
+    pct_y: float  # Top-left Y as percentage
+    pct_width: float  # Width as percentage
+    pct_height: float  # Height as percentage
     tag: Optional[str] = None
 
 
@@ -487,6 +491,90 @@ async def health():
     )
 
 
+# =============================================================================
+# Helper Functions for Coordinate Conversion
+# =============================================================================
+
+def yolo_to_percentages(box, orig_width: int, orig_height: int) -> dict:
+    """
+    Convert YOLO bounding box to top-left percentages.
+    
+    Args:
+        box: YOLO box object with xywh attribute
+        orig_width: Original image width
+        orig_height: Original image height
+    
+    Returns:
+        Dictionary with pct_x, pct_y, pct_width, pct_height (0.0 to 1.0)
+    """
+    # Get YOLO format: center_x, center_y, width, height (in pixels)
+    x_c, y_c, w, h = box.xywh[0].cpu().numpy()
+    
+    # Convert center to top-left corner
+    top_left_x = x_c - (w / 2)
+    top_left_y = y_c - (h / 2)
+    
+    # Convert to percentages (0.0 to 1.0)
+    pct_x = float(top_left_x / orig_width)
+    pct_y = float(top_left_y / orig_height)
+    pct_width = float(w / orig_width)
+    pct_height = float(h / orig_height)
+    
+    # Clamp to valid range [0.0, 1.0]
+    pct_x = max(0.0, min(1.0, pct_x))
+    pct_y = max(0.0, min(1.0, pct_y))
+    pct_width = max(0.0, min(1.0 - pct_x, pct_width))
+    pct_height = max(0.0, min(1.0 - pct_y, pct_height))
+    
+    return {
+        "pct_x": pct_x,
+        "pct_y": pct_y,
+        "pct_width": pct_width,
+        "pct_height": pct_height,
+    }
+
+
+def bbox_to_percentages(x1: float, y1: float, x2: float, y2: float, 
+                        orig_width: int, orig_height: int) -> dict:
+    """
+    Convert pixel bounding box (x1, y1, x2, y2) to percentages.
+    
+    Args:
+        x1, y1: Top-left corner in pixels
+        x2, y2: Bottom-right corner in pixels
+        orig_width: Original image width
+        orig_height: Original image height
+    
+    Returns:
+        Dictionary with pct_x, pct_y, pct_width, pct_height (0.0 to 1.0)
+    """
+    width = x2 - x1
+    height = y2 - y1
+    
+    # Convert to percentages
+    pct_x = float(x1 / orig_width)
+    pct_y = float(y1 / orig_height)
+    pct_width = float(width / orig_width)
+    pct_height = float(height / orig_height)
+    
+    # Clamp to valid range
+    pct_x = max(0.0, min(1.0, pct_x))
+    pct_y = max(0.0, min(1.0, pct_y))
+    pct_width = max(0.0, min(1.0 - pct_x, pct_width))
+    pct_height = max(0.0, min(1.0 - pct_y, pct_height))
+    
+    return {
+        "pct_x": pct_x,
+        "pct_y": pct_y,
+        "pct_width": pct_width,
+        "pct_height": pct_height,
+    }
+
+
+# =============================================================================
+# API Endpoints
+# =============================================================================
+
 @app.post("/process", response_model=ProcessingResult)
 async def process_image(file: UploadFile = File(...)):
     """
@@ -577,18 +665,24 @@ async def process_image(file: UploadFile = File(...)):
             print("[API] Using Hybrid Pipeline (YOLO + HoughCircles + ISA Regex)")
             result = state.hybrid_pipeline.process(image)
             
-            # Convert hybrid results to API format with validation
+            # Convert hybrid results to API format with percentage coordinates
             for node in result.nodes:
-                bbox_dict = {"x1": node.x1, "y1": node.y1, "x2": node.x2, "y2": node.y2}
-                validated_bbox = validate_bbox(bbox_dict, w, h)
+                # Convert pixel coordinates to percentages
+                coords = bbox_to_percentages(node.x1, node.y1, node.x2, node.y2, w, h)
                 
-                if validated_bbox and is_in_content_area(validated_bbox, w, h):
-                    detections.append(DetectionResult(
-                        class_name=node.class_name,
-                        confidence=node.confidence,
-                        bbox=validated_bbox,
-                        tag=node.tag,
-                    ))
+                # Basic validation: skip if box is too small or invalid
+                if coords["pct_width"] < 0.005 or coords["pct_height"] < 0.005:
+                    continue
+                
+                detections.append(DetectionResult(
+                    class_name=node.class_name,
+                    confidence=node.confidence,
+                    pct_x=coords["pct_x"],
+                    pct_y=coords["pct_y"],
+                    pct_width=coords["pct_width"],
+                    pct_height=coords["pct_height"],
+                    tag=node.tag,
+                ))
             
             instruments_count = result.stats.get("instruments", 0)
             nodes_count = len(detections)  # Use filtered count
@@ -774,16 +868,22 @@ async def process_image(file: UploadFile = File(...)):
             print("[API] Using High-Density Pipeline (SAHI + PaddleOCR)")
             result = state.high_density_pipeline.process(image)
             
-            # Convert high-density results to API format with validation
+            # Convert high-density results to API format with percentage coordinates
             for idx, symbol in enumerate(result.symbols):
-                bbox_dict = {"x1": symbol.x1, "y1": symbol.y1, "x2": symbol.x2, "y2": symbol.y2}
-                validated_bbox = validate_bbox(bbox_dict, w, h)
+                # Convert pixel coordinates to percentages
+                coords = bbox_to_percentages(symbol.x1, symbol.y1, symbol.x2, symbol.y2, w, h)
                 
-                if validated_bbox and is_in_content_area(validated_bbox, w, h):
-                    detections.append(DetectionResult(
-                        class_name=symbol.class_name,
-                        confidence=symbol.confidence,
-                        bbox=validated_bbox,
+                # Basic validation: skip if box is too small
+                if coords["pct_width"] < 0.005 or coords["pct_height"] < 0.005:
+                    continue
+                
+                detections.append(DetectionResult(
+                    class_name=symbol.class_name,
+                    confidence=symbol.confidence,
+                    pct_x=coords["pct_x"],
+                    pct_y=coords["pct_y"],
+                    pct_width=coords["pct_width"],
+                    pct_height=coords["pct_height"],
                         tag=symbol.tag,
                     ))
             
@@ -807,40 +907,48 @@ async def process_image(file: UploadFile = File(...)):
             print("[API] Using SAHI Pipeline for processing")
             result = state.sahi_pipeline.process(image)
             
-            # Convert SAHI detections to API format with validation
+            # Convert SAHI detections to API format with percentage coordinates
             for det in result['detections']:
-                bbox_dict = {"x1": det.x1, "y1": det.y1, "x2": det.x2, "y2": det.y2}
-                validated_bbox = validate_bbox(bbox_dict, w, h)
+                # Convert pixel coordinates to percentages
+                coords = bbox_to_percentages(det.x1, det.y1, det.x2, det.y2, w, h)
                 
-                if validated_bbox and is_in_content_area(validated_bbox, w, h):
-                    detections.append(DetectionResult(
-                        class_name=det.class_name,
-                        confidence=det.confidence,
-                        bbox=validated_bbox,
-                        tag=None,
-                    ))
+                # Basic validation: skip if box is too small
+                if coords["pct_width"] < 0.005 or coords["pct_height"] < 0.005:
+                    continue
+                
+                detections.append(DetectionResult(
+                    class_name=det.class_name,
+                    confidence=det.confidence,
+                    pct_x=coords["pct_x"],
+                    pct_y=coords["pct_y"],
+                    pct_width=coords["pct_width"],
+                    pct_height=coords["pct_height"],
+                    tag=None,
+                ))
             
-            # Add instrument detections from ISA tags with validation
+            # Add instrument detections from ISA tags with percentage coordinates
             for inst in result['instruments']:
                 cx, cy = inst['center']
                 radius = 25  # Typical instrument bubble size
                 
-                bbox_dict = {
-                    "x1": float(cx - radius),
-                    "y1": float(cy - radius),
-                    "x2": float(cx + radius),
-                    "y2": float(cy + radius),
-                }
+                x1 = float(cx - radius)
+                y1 = float(cy - radius)
+                x2 = float(cx + radius)
+                y2 = float(cy + radius)
                 
-                validated_bbox = validate_bbox(bbox_dict, w, h)
-                if not validated_bbox or not is_in_content_area(validated_bbox, w, h):
+                # Convert to percentages
+                coords = bbox_to_percentages(x1, y1, x2, y2, w, h)
+                
+                # Skip if too small
+                if coords["pct_width"] < 0.005 or coords["pct_height"] < 0.005:
                     continue
                 
-                # Check if already detected
+                # Check if already detected (check against existing detections)
                 is_duplicate = False
                 for det in detections:
-                    det_cx = (det.bbox["x1"] + det.bbox["x2"]) / 2
-                    det_cy = (det.bbox["y1"] + det.bbox["y2"]) / 2
+                    # Calculate center from percentage coordinates
+                    det_cx = (det.pct_x + det.pct_width / 2) * w
+                    det_cy = (det.pct_y + det.pct_height / 2) * h
                     if ((cx - det_cx)**2 + (cy - det_cy)**2)**0.5 < 50:
                         det.tag = inst['tag']  # Assign tag to existing detection
                         is_duplicate = True
@@ -850,7 +958,10 @@ async def process_image(file: UploadFile = File(...)):
                     detections.append(DetectionResult(
                         class_name="instrument.bubble",
                         confidence=inst['confidence'],
-                        bbox=validated_bbox,
+                        pct_x=coords["pct_x"],
+                        pct_y=coords["pct_y"],
+                        pct_width=coords["pct_width"],
+                        pct_height=coords["pct_height"],
                         tag=inst['tag'],
                     ))
             
@@ -873,7 +984,7 @@ async def process_image(file: UploadFile = File(...)):
             
             instruments_count = len(result.instruments)
             
-            # Build detections list - include all detected objects with validation
+            # Build detections list - include all detected objects with percentage coordinates
             all_items = (
                 list(result.instruments) + 
                 list(result.equipment) + 
@@ -884,15 +995,16 @@ async def process_image(file: UploadFile = File(...)):
             for inst in all_items:
                 # bbox is a tuple (x1, y1, x2, y2)
                 bbox_coords = inst.bbox if isinstance(inst.bbox, tuple) and len(inst.bbox) == 4 else (0, 0, 0, 0)
-                bbox_dict = {
-                    "x1": bbox_coords[0],
-                    "y1": bbox_coords[1],
-                    "x2": bbox_coords[2],
-                    "y2": bbox_coords[3],
-                }
                 
-                validated_bbox = validate_bbox(bbox_dict, w, h)
-                if not validated_bbox or not is_in_content_area(validated_bbox, w, h):
+                # Convert to percentages
+                coords = bbox_to_percentages(
+                    bbox_coords[0], bbox_coords[1], 
+                    bbox_coords[2], bbox_coords[3], 
+                    w, h
+                )
+                
+                # Skip if too small
+                if coords["pct_width"] < 0.005 or coords["pct_height"] < 0.005:
                     continue
                 
                 # Use detection_confidence if confidence is 0 (for unidentified symbols)
@@ -900,7 +1012,10 @@ async def process_image(file: UploadFile = File(...)):
                 detections.append(DetectionResult(
                     class_name=inst.symbol_class,
                     confidence=conf,
-                    bbox=validated_bbox,
+                    pct_x=coords["pct_x"],
+                    pct_y=coords["pct_y"],
+                    pct_width=coords["pct_width"],
+                    pct_height=coords["pct_height"],
                     tag=inst.tag_number if inst.tag_number != "UNTAGGED" else None,
                 ))
             
@@ -938,22 +1053,23 @@ async def process_image(file: UploadFile = File(...)):
                     tx, ty = txt_info['center']
                     
                     radius = 25
-                    bbox_dict = {
-                        "x1": float(tx - radius),
-                        "y1": float(ty - radius),
-                        "x2": float(tx + radius),
-                        "y2": float(ty + radius),
-                    }
+                    x1 = float(tx - radius)
+                    y1 = float(ty - radius)
+                    x2 = float(tx + radius)
+                    y2 = float(ty + radius)
                     
-                    validated_bbox = validate_bbox(bbox_dict, w, h)
-                    if not validated_bbox or not is_in_content_area(validated_bbox, w, h):
+                    # Convert to percentages
+                    coords = bbox_to_percentages(x1, y1, x2, y2, w, h)
+                    
+                    # Skip if too small
+                    if coords["pct_width"] < 0.005 or coords["pct_height"] < 0.005:
                         continue
                     
                     # Check if overlaps with existing detections
                     is_duplicate = False
                     for det in detections:
-                        det_cx = (det.bbox["x1"] + det.bbox["x2"]) / 2
-                        det_cy = (det.bbox["y1"] + det.bbox["y2"]) / 2
+                        det_cx = (det.pct_x + det.pct_width / 2) * w
+                        det_cy = (det.pct_y + det.pct_height / 2) * h
                         if ((tx - det_cx)**2 + (ty - det_cy)**2)**0.5 < 50:
                             is_duplicate = True
                             break
@@ -962,7 +1078,10 @@ async def process_image(file: UploadFile = File(...)):
                         detections.append(DetectionResult(
                             class_name="instrument.bubble",
                             confidence=0.8,
-                            bbox=validated_bbox,
+                            pct_x=coords["pct_x"],
+                            pct_y=coords["pct_y"],
+                            pct_width=coords["pct_width"],
+                            pct_height=coords["pct_height"],
                             tag=tag_text,
                         ))
                         circle_count += 1
@@ -991,12 +1110,15 @@ async def process_image(file: UploadFile = File(...)):
                                      if n.node_type.value in ("equipment", "pump")]),
                 }
         else:
-            # Demo mode without model
+            # Demo mode without model - use percentage coordinates
             detections = [
                 DetectionResult(
                     class_name="instrument.bubble",
                     confidence=0.95,
-                    bbox={"x1": 100, "y1": 100, "x2": 150, "y2": 150},
+                    pct_x=0.1,  # 10% from left
+                    pct_y=0.1,  # 10% from top
+                    pct_width=0.05,  # 5% width
+                    pct_height=0.05,  # 5% height
                     tag="FT-101",
                 )
             ]

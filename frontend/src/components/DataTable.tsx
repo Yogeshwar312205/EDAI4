@@ -134,13 +134,16 @@ export const DataTable: React.FC<DataTableProps> = ({ detections }) => {
         size: 150,
       }),
       columnHelper.display({
-        id: 'bbox',
+        id: 'location',
         header: 'Location',
         cell: (info) => {
-          const bbox = info.row.original.bbox;
+          const detection = info.row.original;
+          // Convert percentage to display format (0-100%)
+          const x = (detection.pct_x * 100).toFixed(1);
+          const y = (detection.pct_y * 100).toFixed(1);
           return (
             <span className="text-xs font-mono text-industrial-400">
-              ({bbox.x1.toFixed(0)}, {bbox.y1.toFixed(0)})
+              ({x}%, {y}%)
             </span>
           );
         },

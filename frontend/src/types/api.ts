@@ -1,16 +1,13 @@
 // API Type Definitions matching FastAPI backend
 
-export interface BoundingBox {
-  x1: number;
-  y1: number;
-  x2: number;
-  y2: number;
-}
-
 export interface DetectionResult {
   class_name: string;
   confidence: number;
-  bbox: BoundingBox;
+  // Percentage coordinates (0.0 to 1.0) - Backend does all the math!
+  pct_x: number;      // Top-left X as percentage
+  pct_y: number;      // Top-left Y as percentage
+  pct_width: number;  // Width as percentage
+  pct_height: number; // Height as percentage
   tag: string | null;
 }
 

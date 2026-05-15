@@ -12,6 +12,7 @@ import { DeliverablesPanel } from '@/components/DeliverablesPanel';
 import { DesignRulesDashboard } from '@/components/DesignRulesDashboard';
 import { FlowSimulator } from '@/components/FlowSimulator';
 import { HazOpSimulator } from '@/components/HazOpSimulator';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { Layers, Table, Network, Upload as UploadIcon, FileText, Shield, Workflow, AlertTriangle, Edit } from 'lucide-react';
 
 const queryClient = new QueryClient({
@@ -354,8 +355,10 @@ const FeatureCard: React.FC<{
 // Main App with Providers
 export default function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <AppContent />
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <AppContent />
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }

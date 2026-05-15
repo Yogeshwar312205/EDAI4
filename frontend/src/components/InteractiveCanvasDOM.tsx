@@ -1,7 +1,7 @@
 /**
  * Interactive Canvas with DOM-based Bounding Box Overlays
- * BULLETPROOF YOLO BOUNDING BOX ALIGNMENT FIX
- * Uses percentage-based getBoundingClientRect() method for pixel-perfect positioning
+ * SIMPLIFIED COORDINATE FIX - Backend sends percentages, React multiplies by 100!
+ * No complex math, no resize bugs, resolution-independent!
  */
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
@@ -11,14 +11,7 @@ import type { DetectionResult } from '@/types/api';
 interface InteractiveCanvasDOMProps {
   imageUrl: string;
   detections: DetectionResult[];
-  imageSize?: { width: number; height: number }; // Optional, uses natural dimensions
-}
-
-interface ImageMetrics {
-  width: number;
-  height: number;
-  offsetX: number;
-  offsetY: number;
+  imageSize?: { width: number; height: number }; // Optional, not needed anymore!
 }
 
 export const InteractiveCanvasDOM: React.FC<InteractiveCanvasDOMProps> = ({
@@ -27,7 +20,7 @@ export const InteractiveCanvasDOM: React.FC<InteractiveCanvasDOMProps> = ({
 }) => {
   const imageRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [imageMetrics, setImageMetrics] = useState<ImageMetrics | null>(null);
+  const [imageLoaded, setImageLoaded] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
@@ -35,118 +28,64 @@ export const InteractiveCanvasDOM: React.FC<InteractiveCanvasDOMProps> = ({
   
   const { selectedNodeId, hoveredNodeId, setHoveredNodeId, setSelectedNodeId } = useAppStore();
 
+  // Debug logging
+  console.log('[InteractiveCanvasDOM] Rendering with:', {
+    imageUrl: imageUrl ? 'present' : 'missing',
+    detectionsCount: detections?.length || 0,
+    imageLoaded,
+  });
+
+  // Validate detections
+  React.useEffect(() => {
+    if (detections && detections.length > 0) {
+      console.log('[InteractiveCanvasDOM] First detection:', detections[0]);
+      
+      // Check if detections have the correct format
+      const firstDet = detections[0];
+      if (!firstDet.pct_x && !firstDet.pct_y) {
+        console.error('[InteractiveCanvasDOM] ERROR: Detections missing percentage coordinates!', firstDet);
+      }
+    }
+  }, [detections]);
+
   /**
-   * BULLETPROOF METHOD: ResizeObserver with getBoundingClientRect()
-   * This calculates the EXACT visible footprint of the image, excluding letterbox space
+   * SIMPLIFIED: Just wait for image to load
+   * No complex ResizeObserver or getBoundingClientRect needed!
    */
   useEffect(() => {
     if (!imageRef.current) return;
 
-    const observer = new ResizeObserver((entries) => {
-      for (let entry of entries) {
-        const img = entry.target as HTMLImageElement;
-        const rect = img.getBoundingClientRect();
-        const naturalW = img.naturalWidth;
-        const naturalH = img.naturalHeight;
-
-        if (naturalW === 0 || naturalH === 0) return;
-
-        // Calculate the true active scale factor
-        const scale = Math.min(rect.width / naturalW, rect.height / naturalH);
-
-        // Calculate the exact visible rendered width and height in pixels
-        const renderedW = naturalW * scale;
-        const renderedH = naturalH * scale;
-
-        // Calculate the offsetX and offsetY (the size of the empty letterbox margins)
-        const offsetX = (rect.width - renderedW) / 2;
-        const offsetY = (rect.height - renderedH) / 2;
-
-        setImageMetrics({ 
-          width: renderedW, 
-          height: renderedH, 
-          offsetX, 
-          offsetY 
-        });
-      }
-    });
-
-    observer.observe(imageRef.current);
-
-    // Also trigger on image load
     const handleImageLoad = () => {
-      if (!imageRef.current) return;
-      const img = imageRef.current;
-      const rect = img.getBoundingClientRect();
-      const naturalW = img.naturalWidth;
-      const naturalH = img.naturalHeight;
-
-      if (naturalW === 0 || naturalH === 0) return;
-
-      const scale = Math.min(rect.width / naturalW, rect.height / naturalH);
-      const renderedW = naturalW * scale;
-      const renderedH = naturalH * scale;
-      const offsetX = (rect.width - renderedW) / 2;
-      const offsetY = (rect.height - renderedH) / 2;
-
-      setImageMetrics({ 
-        width: renderedW, 
-        height: renderedH, 
-        offsetX, 
-        offsetY 
-      });
+      setImageLoaded(true);
+      console.log('✅ Image loaded - using percentage coordinates!');
     };
 
     imageRef.current.addEventListener('load', handleImageLoad);
     
-    // Trigger initial calculation if image already loaded
+    // Trigger if already loaded
     if (imageRef.current.complete) {
       handleImageLoad();
     }
 
     return () => {
-      observer.disconnect();
       if (imageRef.current) {
         imageRef.current.removeEventListener('load', handleImageLoad);
       }
     };
-  }, []);
+  }, [imageUrl]);
 
   /**
-   * Convert YOLO bbox to CSS percentages
-   * Backend sends [x1, y1, x2, y2] as top-left and bottom-right corners (already in correct format)
+   * SIMPLIFIED: Convert backend percentages to CSS percentages
+   * Backend sends 0.0 to 1.0, we just multiply by 100!
    */
-  const bboxToPercentages = useCallback(
-    (bbox: { x1: number; y1: number; x2: number; y2: number }) => {
-      if (!imageRef.current) return null;
-
-      const naturalWidth = imageRef.current.naturalWidth;
-      const naturalHeight = imageRef.current.naturalHeight;
-
-      if (naturalWidth === 0 || naturalHeight === 0) return null;
-
-      // Backend already sends top-left (x1, y1) and bottom-right (x2, y2)
-      // No center-to-top-left conversion needed!
-      const x1 = bbox.x1;
-      const y1 = bbox.y1;
-      const x2 = bbox.x2;
-      const y2 = bbox.y2;
-
-      // Convert to CSS percentages based on natural image dimensions
-      const leftPct = (x1 / naturalWidth) * 100;
-      const topPct = (y1 / naturalHeight) * 100;
-      const widthPct = ((x2 - x1) / naturalWidth) * 100;
-      const heightPct = ((y2 - y1) / naturalHeight) * 100;
-
-      return {
-        left: `${leftPct}%`,
-        top: `${topPct}%`,
-        width: `${widthPct}%`,
-        height: `${heightPct}%`,
-      };
-    },
-    []
-  );
+  const getBoxStyle = useCallback((detection: DetectionResult) => {
+    return {
+      left: `${detection.pct_x * 100}%`,
+      top: `${detection.pct_y * 100}%`,
+      width: `${detection.pct_width * 100}%`,
+      height: `${detection.pct_height * 100}%`,
+    };
+  }, []);
 
   /**
    * Handle mouse wheel zoom
@@ -198,32 +137,31 @@ export const InteractiveCanvasDOM: React.FC<InteractiveCanvasDOMProps> = ({
   }, []);
 
   /**
-   * Zoom to specific detection
+   * Zoom to specific detection (simplified)
    */
   useEffect(() => {
-    if (selectedNodeId && imageMetrics) {
+    if (selectedNodeId && imageLoaded && imageRef.current) {
       const index = parseInt(selectedNodeId.replace('node_', ''));
       
       if (index >= 0 && index < detections.length) {
         const detection = detections[index];
-        const coords = bboxToPercentages(detection.bbox);
         
-        if (coords && containerRef.current) {
-          // Parse percentage values to get center
-          const leftPct = parseFloat(coords.left);
-          const topPct = parseFloat(coords.top);
-          const widthPct = parseFloat(coords.width);
-          const heightPct = parseFloat(coords.height);
-          
-          // Calculate center in pixels
-          const centerX = imageMetrics.offsetX + (leftPct + widthPct / 2) * imageMetrics.width / 100;
-          const centerY = imageMetrics.offsetY + (topPct + heightPct / 2) * imageMetrics.height / 100;
-          
-          // Zoom to 2x
-          const newZoom = 2;
-          setZoom(newZoom);
-          
-          // Pan to center the detection
+        // Calculate center from percentage coordinates
+        const centerXPct = detection.pct_x + detection.pct_width / 2;
+        const centerYPct = detection.pct_y + detection.pct_height / 2;
+        
+        // Convert to pixels
+        const naturalW = imageRef.current.naturalWidth;
+        const naturalH = imageRef.current.naturalHeight;
+        const centerX = centerXPct * naturalW;
+        const centerY = centerYPct * naturalH;
+        
+        // Zoom to 2x
+        const newZoom = 2;
+        setZoom(newZoom);
+        
+        // Pan to center the detection
+        if (containerRef.current) {
           const containerRect = containerRef.current.getBoundingClientRect();
           setPan({
             x: containerRect.width / 2 - centerX * newZoom,
@@ -232,7 +170,7 @@ export const InteractiveCanvasDOM: React.FC<InteractiveCanvasDOMProps> = ({
         }
       }
     }
-  }, [selectedNodeId, detections, imageMetrics, bboxToPercentages]);
+  }, [selectedNodeId, detections, imageLoaded]);
 
   /**
    * Get color based on class
@@ -264,98 +202,81 @@ export const InteractiveCanvasDOM: React.FC<InteractiveCanvasDOMProps> = ({
           transition: isPanning ? 'none' : 'transform 0.3s ease-out',
         }}
       >
-        {/* P&ID Image */}
-        <img
-          ref={imageRef}
-          src={imageUrl}
-          alt="P&ID Diagram"
-          className="max-w-full max-h-full object-contain"
-          draggable={false}
-          style={{ userSelect: 'none' }}
-        />
+        {/* P&ID Image with Bounding Boxes */}
+        <div className="relative">
+          <img
+            ref={imageRef}
+            src={imageUrl}
+            alt="P&ID Diagram"
+            className="max-w-full max-h-full object-contain"
+            draggable={false}
+            style={{ userSelect: 'none' }}
+          />
 
-        {/* Inner Wrapper - Perfectly covers only the visible image */}
-        {imageMetrics && (
-          <div
-            className="absolute pointer-events-none"
-            style={{
-              width: `${imageMetrics.width}px`,
-              height: `${imageMetrics.height}px`,
-              left: `${imageMetrics.offsetX}px`,
-              top: `${imageMetrics.offsetY}px`,
-            }}
-          >
-            {/* Bounding Box Overlays - Using CSS Percentages */}
-            {detections.map((detection, index) => {
-              const nodeId = `node_${index}`;
-              const isSelected = selectedNodeId === nodeId;
-              const isHovered = hoveredNodeId === nodeId;
-              const coords = bboxToPercentages(detection.bbox);
-              
-              if (!coords) return null;
+          {/* SIMPLIFIED: Bounding Box Overlays - Direct Percentage Positioning */}
+          {imageLoaded && detections.map((detection, index) => {
+            const nodeId = `node_${index}`;
+            const isSelected = selectedNodeId === nodeId;
+            const isHovered = hoveredNodeId === nodeId;
+            const boxStyle = getBoxStyle(detection);  // Just multiply by 100!
+            const color = getClassColor(detection.class_name);
 
-              const color = getClassColor(detection.class_name);
+            return (
+              <div
+                key={nodeId}
+                className="absolute pointer-events-auto"
+                style={{
+                  ...boxStyle,  // Just use the percentages directly!
+                  border: `${isSelected ? 4 : isHovered ? 3 : 2}px solid ${color}`,
+                  boxShadow: isSelected || isHovered ? `0 0 20px ${color}` : 'none',
+                  transition: 'all 0.2s ease',
+                  cursor: 'pointer',
+                }}
+                onMouseEnter={() => setHoveredNodeId(nodeId)}
+                onMouseLeave={() => setHoveredNodeId(null)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedNodeId(nodeId);
+                }}
+              >
+                {/* Tag Label */}
+                {detection.tag && (
+                  <div
+                    className="absolute -top-6 left-0 px-2 py-1 rounded text-xs font-bold font-mono whitespace-nowrap"
+                    style={{
+                      backgroundColor: color,
+                      color: '#0a0e14',
+                    }}
+                  >
+                    {detection.tag}
+                  </div>
+                )}
 
-              return (
-                <div
-                  key={nodeId}
-                  className="absolute pointer-events-auto"
-                  style={{
-                    left: coords.left,
-                    top: coords.top,
-                    width: coords.width,
-                    height: coords.height,
-                    border: `${isSelected ? 4 : isHovered ? 3 : 2}px solid ${color}`,
-                    boxShadow: isSelected || isHovered ? `0 0 20px ${color}` : 'none',
-                    transition: 'all 0.2s ease',
-                    cursor: 'pointer',
-                  }}
-                  onMouseEnter={() => setHoveredNodeId(nodeId)}
-                  onMouseLeave={() => setHoveredNodeId(null)}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedNodeId(nodeId);
-                  }}
-                >
-                  {/* Tag Label */}
-                  {detection.tag && (
-                    <div
-                      className="absolute -top-6 left-0 px-2 py-1 rounded text-xs font-bold font-mono whitespace-nowrap"
-                      style={{
-                        backgroundColor: color,
-                        color: '#0a0e14',
-                      }}
-                    >
-                      {detection.tag}
-                    </div>
-                  )}
-
-                  {/* Hover Tooltip */}
-                  {isHovered && (
-                    <div
-                      className="absolute left-full ml-2 top-0 w-48 bg-industrial-800 border-2 rounded-lg p-3 shadow-2xl z-50"
-                      style={{
-                        borderColor: color,
-                      }}
-                    >
-                      <div className="text-xs space-y-1 font-mono">
-                        <div className="text-industrial-300">
-                          Tag: <span className="text-industrial-100">{detection.tag || 'N/A'}</span>
-                        </div>
-                        <div className="text-industrial-400">
-                          Class: {detection.class_name}
-                        </div>
-                        <div style={{ color }}>
-                          Confidence: {(detection.confidence * 100).toFixed(1)}%
-                        </div>
+                {/* Hover Tooltip */}
+                {isHovered && (
+                  <div
+                    className="absolute left-full ml-2 top-0 w-48 bg-industrial-800 border-2 rounded-lg p-3 shadow-2xl z-50"
+                    style={{
+                      borderColor: color,
+                    }}
+                  >
+                    <div className="text-xs space-y-1 font-mono">
+                      <div className="text-industrial-300">
+                        Tag: <span className="text-industrial-100">{detection.tag || 'N/A'}</span>
+                      </div>
+                      <div className="text-industrial-400">
+                        Class: {detection.class_name}
+                      </div>
+                      <div style={{ color }}>
+                        Confidence: {(detection.confidence * 100).toFixed(1)}%
                       </div>
                     </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Controls Overlay */}
@@ -376,22 +297,21 @@ export const InteractiveCanvasDOM: React.FC<InteractiveCanvasDOMProps> = ({
         </div>
       </div>
 
-      {/* Debug Info - Shows exact metrics */}
-      {imageMetrics && (
+      {/* Debug Info - Shows percentage-based coordinates */}
+      {imageLoaded && (
         <div className="absolute top-4 left-4 bg-industrial-800/90 backdrop-blur-sm rounded-lg p-2 border border-industrial-600 text-xs font-mono text-industrial-400">
-          <div className="font-bold text-accent-blue mb-1">🎯 Bulletproof Metrics</div>
+          <div className="font-bold text-green-400 mb-1">✅ Percentage-Based Coordinates</div>
           <div>Natural: {imageRef.current?.naturalWidth} × {imageRef.current?.naturalHeight}</div>
-          <div>Rendered: {imageMetrics.width.toFixed(1)} × {imageMetrics.height.toFixed(1)}</div>
-          <div>Offset: {imageMetrics.offsetX.toFixed(1)}, {imageMetrics.offsetY.toFixed(1)}</div>
-          <div>Scale: {(imageMetrics.width / (imageRef.current?.naturalWidth || 1)).toFixed(4)}</div>
-          <div className="pt-1 border-t border-industrial-600 mt-1">
-            Detections: {detections.length}
+          <div>Detections: {detections.length}</div>
+          <div className="pt-1 border-t border-industrial-600 mt-1 text-green-400">
+            Backend sends percentages (0.0-1.0)
           </div>
-          {detections.length > 0 && (
-            <div className="pt-1 border-t border-industrial-600 mt-1 text-green-400">
-              ✅ Using top-left coords (no center shift)
-            </div>
-          )}
+          <div className="text-green-400">
+            React multiplies by 100 for CSS
+          </div>
+          <div className="text-green-400">
+            No scaling math needed! 🎉
+          </div>
         </div>
       )}
     </div>
