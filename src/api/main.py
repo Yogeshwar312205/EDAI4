@@ -39,6 +39,12 @@ from src.api.flow_simulator import (
     FlowSimulationRequest,
     FlowSimulationResponse
 )
+# Text-to-Topology generator import
+from src.api.text_to_topology import (
+    get_text_to_topology_generator,
+    TextToTopologyRequest,
+    TextToTopologyResponse
+)
 
 
 # =============================================================================
@@ -2451,3 +2457,115 @@ def run_server(host: str = "0.0.0.0", port: int = 8000, reload: bool = False):
 
 if __name__ == "__main__":
     run_server(port=8000, reload=True)
+
+
+# =============================================================================
+# Text-to-Topology Generator (AI-Powered P&ID Drafting)
+# =============================================================================
+
+@app.post("/api/generate-topology", response_model=TextToTopologyResponse)
+async def generate_topology(request: TextToTopologyRequest):
+    """
+    Generate P&ID topology from natural language description using Gemini AI.
+    
+    This endpoint enables engineers to draft entire subsystems using natural language
+    instead of manually placing nodes and edges. Simply describe what you want,
+    and the AI will generate the complete topology.
+    
+    **Examples:**
+    - "Draft a cooling water return loop with two parallel centrifugal pumps and check valves"
+    - "Create a steam condensate system with level control and return pump"
+    - "Generate a chemical dosing system with metering pump and flow indicator"
+    - "Design a pressure relief system with PSV and rupture disk"
+    
+    **Features:**
+    - Generates nodes (equipment, instruments, valves) with proper ISA tags
+    - Creates edges (pipes, connections) with correct flow direction
+    - Positions nodes logically (left-to-right or top-to-bottom flow)
+    - Uses standard P&ID conventions and symbols
+    - Integrates with existing topology (optional)
+    
+    Args:
+        request: TextToTopologyRequest containing:
+            - prompt: Natural language description
+            - existing_nodes: Optional existing nodes for context
+            - existing_edges: Optional existing edges for context
+            - start_position: Optional starting position for new nodes
+    
+    Returns:
+        TextToTopologyResponse with:
+            - nodes: Generated nodes with positions and tags
+            - edges: Generated edges connecting the nodes
+            - description: AI-generated description of the subsystem
+            - success: Whether generation was successful
+            - error: Error message if failed
+    
+    Example Request:
+        ```json
+        {
+            "prompt": "Draft a cooling water loop with pump and control valve",
+            "start_position": {"x": 100, "y": 100}
+        }
+        ```
+    
+    Example Response:
+        ```json
+        {
+            "nodes": [
+                {
+                    "id": "tank_cw_001",
+                    "type": "equipment.tank",
+                    "label": "CW Tank",
+                    "tag": "TK-101",
+                    "x": 100,
+                    "y": 100
+                },
+                {
+                    "id": "pump_cw_001",
+                    "type": "equipment.pump",
+                    "label": "CW Pump",
+                    "tag": "P-101",
+                    "x": 300,
+                    "y": 100
+                }
+            ],
+            "edges": [
+                {
+                    "source": "tank_cw_001",
+                    "target": "pump_cw_001",
+                    "type": "pipe"
+                }
+            ],
+            "description": "Cooling water circulation loop",
+            "prompt": "Draft a cooling water loop with pump and control valve",
+            "success": true
+        }
+        ```
+    """
+    try:
+        logger.info(f"Text-to-topology request: {request.prompt}")
+        
+        # Get generator
+        generator = get_text_to_topology_generator()
+        
+        # Generate topology
+        response = generator.generate_topology(
+            prompt=request.prompt,
+            existing_nodes=request.existing_nodes,
+            existing_edges=request.existing_edges,
+            start_position=request.start_position
+        )
+        
+        if response.success:
+            logger.info(
+                f"Generated topology: {len(response.nodes)} nodes, "
+                f"{len(response.edges)} edges"
+            )
+        else:
+            logger.error(f"Generation failed: {response.error}")
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Text-to-topology error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

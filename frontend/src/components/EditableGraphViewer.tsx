@@ -34,9 +34,11 @@ import {
   Download,
   Upload,
   AlertCircle,
-  RefreshCw
+  RefreshCw,
+  Sparkles
 } from 'lucide-react';
 import { ComponentPalette } from './ComponentPalette';
+import { TextToTopologyPanel } from './TextToTopologyPanel';
 import { useAppStore } from '@/store/useAppStore';
 import axios from 'axios';
 import { EnhancedNode } from './nodes/EnhancedNode';
@@ -59,6 +61,7 @@ export const EditableGraphViewer: React.FC<EditableGraphViewerProps> = ({
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
   const [selectedNodes, setSelectedNodes] = useState<string[]>([]);
   const [selectedEdges, setSelectedEdges] = useState<string[]>([]);
+  const [showTextToTopology, setShowTextToTopology] = useState(false);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   
   // Get store actions
@@ -277,6 +280,68 @@ export const EditableGraphViewer: React.FC<EditableGraphViewerProps> = ({
     }
   }, [nodes, edges, handleSaveToFile]);
 
+  // Handle topology generated from AI
+  const handleTopologyGenerated = useCallback((generatedNodes: any[], generatedEdges: any[]) => {
+    console.log('Adding generated topology:', { nodes: generatedNodes.length, edges: generatedEdges.length });
+    
+    // Convert generated nodes to React Flow format
+    const newNodes: Node[] = generatedNodes.map((node) => ({
+      id: node.id,
+      type: 'enhanced',
+      position: { x: node.x, y: node.y },
+      data: {
+        label: node.label,
+        tag: node.tag,
+        type: node.type,
+        description: node.description,
+      },
+      style: {
+        background: `linear-gradient(135deg, ${getNodeColor(node.type)} 0%, ${getNodeColor(node.type)}dd 100%)`,
+        color: '#ffffff',
+        border: `2px solid ${getNodeColor(node.type)}`,
+        borderRadius: '8px',
+        padding: '12px',
+        fontSize: '13px',
+        fontWeight: 600,
+        minWidth: 140,
+        minHeight: 70,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        boxShadow: `0 4px 6px ${getNodeColor(node.type)}40`,
+        textAlign: 'center',
+      },
+    }));
+    
+    // Convert generated edges to React Flow format
+    const newEdges: Edge[] = generatedEdges.map((edge, index) => ({
+      id: `generated-edge-${Date.now()}-${index}`,
+      source: edge.source,
+      target: edge.target,
+      type: 'smoothstep',
+      animated: false,
+      style: {
+        stroke: '#61afef',
+        strokeWidth: 2,
+      },
+      markerEnd: {
+        type: 'arrowclosed' as any,
+        color: '#61afef',
+      },
+      label: edge.label,
+    }));
+    
+    // Add to existing nodes and edges
+    setNodes((nds) => [...nds, ...newNodes]);
+    setEdges((eds) => [...eds, ...newEdges]);
+    
+    // Close the panel
+    setShowTextToTopology(false);
+    
+    // Show success message
+    console.log(`✅ Added ${newNodes.length} nodes and ${newEdges.length} edges to canvas`);
+  }, [setNodes, setEdges]);
+
   // Load topology from file
   const handleLoadFromFile = useCallback(() => {
     const input = document.createElement('input');
@@ -464,6 +529,20 @@ export const EditableGraphViewer: React.FC<EditableGraphViewerProps> = ({
                 <span>Save Topology</span>
               </button>
 
+              {/* AI Text-to-Topology Button */}
+              <button
+                onClick={() => setShowTextToTopology(!showTextToTopology)}
+                className={`px-4 py-2 font-semibold rounded-full shadow-2xl hover:scale-105 transition-all flex items-center gap-2 ${
+                  showTextToTopology
+                    ? 'bg-gradient-to-r from-accent-purple to-accent-blue text-white'
+                    : 'bg-gradient-to-r from-accent-purple/20 to-accent-blue/20 text-accent-purple border-2 border-accent-purple hover:from-accent-purple hover:to-accent-blue hover:text-white'
+                }`}
+                title="Generate topology from natural language using AI"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>AI Draft</span>
+              </button>
+
               {/* Load Button */}
               <button
                 onClick={handleLoadFromFile}
@@ -610,6 +689,18 @@ export const EditableGraphViewer: React.FC<EditableGraphViewerProps> = ({
           </Panel>
         )}
       </ReactFlow>
+      
+      {/* Text-to-Topology Panel (Floating) */}
+      {showTextToTopology && (
+        <div className="absolute top-4 right-4 w-96 h-[calc(100%-2rem)] z-50 animate-slide-in">
+          <TextToTopologyPanel
+            onTopologyGenerated={handleTopologyGenerated}
+            existingNodes={nodes}
+            existingEdges={edges}
+            startPosition={{ x: 100, y: 100 }}
+          />
+        </div>
+      )}
     </div>
   );
 };
