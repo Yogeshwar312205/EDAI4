@@ -27,7 +27,7 @@ interface GraphViewerProps {
 }
 
 export const GraphViewer: React.FC<GraphViewerProps> = ({ graphData }) => {
-  const { selectedNodeId, setSelectedNodeId } = useAppStore();
+  const { selectedNodeId, setSelectedNodeId, flowSimulationResult } = useAppStore();
   const [error, setError] = useState<string | null>(null);
   const { fitView: triggerFitView, zoomIn, zoomOut } = useReactFlow();
   const [editMode, setEditMode] = useState(false);
@@ -214,20 +214,25 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ graphData }) => {
         })
         .map((edge, index) => {
           const edgeColor = getEdgeColor(edge.type);
+          const edgeId = `${edge.source}-${edge.target}`;
+          
+          // Check if this edge is active in flow simulation
+          const isActiveInFlow = flowSimulationResult?.active_edge_ids.includes(edgeId) || false;
           
           return {
             id: `edge-${index}`,
             source: edge.source,
             target: edge.target,
             type: ConnectionLineType.SmoothStep,
-            animated: edge.type === 'flow',
+            animated: isActiveInFlow, // Animate if active in flow
             style: {
-              stroke: edgeColor,
-              strokeWidth: 2,
+              stroke: isActiveInFlow ? '#98c379' : edgeColor, // Green for active flow
+              strokeWidth: isActiveInFlow ? 4 : 2, // Thicker for active flow
+              opacity: flowSimulationResult && !isActiveInFlow ? 0.3 : 1, // Dim inactive edges
             },
             markerEnd: {
               type: MarkerType.ArrowClosed,
-              color: edgeColor,
+              color: isActiveInFlow ? '#98c379' : edgeColor,
               width: 20,
               height: 20,
             },
@@ -260,7 +265,7 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ graphData }) => {
       setError(errorMessage);
       return { initialNodes: [], initialEdges: [] };
     }
-  }, [graphData]);
+  }, [graphData, flowSimulationResult]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
@@ -439,7 +444,7 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ graphData }) => {
     setFilteredEdgeIds([]);
   }, []);
   
-  // Highlight selected node and apply filter dimming
+  // Highlight selected node and apply filter dimming + flow simulation highlighting
   useEffect(() => {
     if (nodes.length === 0) return;
     
@@ -450,6 +455,28 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ graphData }) => {
         const isSelected = selectedNodeId === node.id;
         const isFiltered = isFilterActive && !filteredNodeIds.includes(node.id);
         
+        // Check if node is active in flow simulation
+        const isActiveInFlow = flowSimulationResult?.active_node_ids.includes(node.id) || false;
+        const isBlocked = flowSimulationResult?.blocked_nodes.includes(node.id) || false;
+        
+        // Determine opacity based on filter and flow simulation
+        let opacity = 1;
+        if (isFiltered) {
+          opacity = 0.2;
+        } else if (flowSimulationResult && !isActiveInFlow) {
+          opacity = 0.3; // Dim inactive nodes when simulation is active
+        }
+        
+        // Determine box shadow based on state
+        let boxShadow = `0 2px 6px ${borderColor}40`;
+        if (isSelected) {
+          boxShadow = `0 0 20px ${borderColor}, 0 0 40px ${borderColor}80`;
+        } else if (isBlocked) {
+          boxShadow = `0 0 20px #e06c75, 0 0 40px #e06c7580`; // Red glow for blocked
+        } else if (isActiveInFlow) {
+          boxShadow = `0 0 15px #98c379, 0 0 30px #98c37960`; // Green glow for active flow
+        }
+        
         return {
           ...node,
           style: {
@@ -457,16 +484,14 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ graphData }) => {
             // Only update boxShadow, zIndex, and opacity
             // ❌ DO NOT USE 'transform' or 'transition' HERE
             // It overrides React Flow's internal position translates!
-            boxShadow: isSelected
-              ? `0 0 20px ${borderColor}, 0 0 40px ${borderColor}80`
-              : `0 2px 6px ${borderColor}40`,
-            zIndex: isSelected ? 1000 : 1,
-            opacity: isFiltered ? 0.2 : 1,
+            boxShadow,
+            zIndex: isSelected ? 1000 : isActiveInFlow ? 100 : 1,
+            opacity,
           },
         };
       })
     );
-  }, [selectedNodeId, isFilterActive, filteredNodeIds, setNodes, nodes.length]);
+  }, [selectedNodeId, isFilterActive, filteredNodeIds, flowSimulationResult, setNodes, nodes.length]);
   
   // Apply filter dimming to edges
   useEffect(() => {
@@ -609,6 +634,19 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ graphData }) => {
               </>
             )}
           </div>
+
+          {/* Flow Simulation Active Indicator */}
+          {flowSimulationResult && (
+            <div className="bg-gradient-to-r from-accent-green/20 to-accent-green/10 backdrop-blur-md border border-accent-green rounded-full px-4 py-2 shadow-2xl flex items-center gap-2 animate-pulse">
+              <div className="w-2 h-2 rounded-full bg-accent-green" />
+              <span className="text-xs text-accent-green font-semibold">
+                Flow Simulation Active
+              </span>
+              <span className="text-xs text-accent-green/70 font-mono">
+                {flowSimulationResult.active_node_ids.length} nodes
+              </span>
+            </div>
+          )}
 
           {/* Filter Toggle Button */}
           <button

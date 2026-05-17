@@ -8,8 +8,9 @@
 
 **New to EDAI4?** Start here:
 1. **[00_START_HERE.md](00_START_HERE.md)** - Main entry point and overview
-2. **[QUICK_START.md](QUICK_START.md)** - Get up and running in 5 minutes
-3. **[PROJECT_DOCUMENTATION.md](PROJECT_DOCUMENTATION.md)** - Complete project documentation
+2. **[PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)** - One-page project summary ⭐ NEW
+3. **[PROJECT_DETAILED_DESCRIPTION.md](PROJECT_DETAILED_DESCRIPTION.md)** - Complete detailed description ⭐ NEW
+4. **[QUICK_START.md](QUICK_START.md)** - Get up and running in 5 minutes
 
 ---
 

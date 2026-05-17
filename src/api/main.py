@@ -33,6 +33,12 @@ logger = logging.getLogger(__name__)
 from src.api.gemini_analyzer import get_analyzer
 # HazOp simulator import
 from src.api.hazop_simulator import get_hazop_simulator, HazOpSimulationRequest, HazOpSimulationResponse
+# Flow simulator import
+from src.api.flow_simulator import (
+    get_flow_simulator,
+    FlowSimulationRequest,
+    FlowSimulationResponse
+)
 
 
 # =============================================================================
@@ -2080,6 +2086,116 @@ async def simulate_hazop(request: HazOpSimulationRequest):
         raise HTTPException(
             status_code=500,
             detail=f"HazOp simulation failed: {str(e)}"
+        )
+
+
+# =============================================================================
+# Flow Simulator
+# =============================================================================
+
+@app.post("/api/simulate-flow", response_model=FlowSimulationResponse)
+async def simulate_flow(request: FlowSimulationRequest):
+    """
+    Simulate fluid flow through P&ID topology with valve control.
+    
+    This endpoint performs a directed graph traversal (BFS) starting from a source node,
+    respecting closed valves as barriers. It returns the active flow path, showing which
+    pipes and equipment have fluid flowing through them.
+    
+    **Use Cases:**
+    - Maintenance planning: "If I close valve V-101, what equipment loses flow?"
+    - Troubleshooting: "Why isn't Tank T-202 filling?"
+    - Emergency response: "If I close emergency valve EV-101, what's affected?"
+    - Process optimization: "What's the flow path from Tank-101 to Tank-501?"
+    
+    **Algorithm:**
+    - Uses Breadth-First Search (BFS) for shortest path
+    - Stops traversal at closed valves (does not explore downstream)
+    - Calculates total flow distance
+    - Identifies blocked nodes
+    
+    Args:
+        request: FlowSimulationRequest containing:
+            - topology: Full graph (nodes and edges)
+            - start_node_id: Starting node for flow simulation
+            - closed_valve_ids: List of valve node IDs that are closed
+    
+    Returns:
+        FlowSimulationResponse with:
+            - active_node_ids: Nodes with fluid flow
+            - active_edge_ids: Pipes with fluid flow
+            - blocked_nodes: Nodes blocked by closed valves
+            - flow_path: Complete flow path from start to end
+            - total_distance: Total distance of flow path
+            - message: Human-readable summary
+    
+    Example Request:
+        ```json
+        {
+            "topology": {
+                "nodes": [
+                    {"id": "Tank-101", "type": "equipment.tank", "x": 100, "y": 200},
+                    {"id": "V-101", "type": "valve.gate", "x": 200, "y": 200},
+                    {"id": "Pump-201", "type": "equipment.pump", "x": 300, "y": 200}
+                ],
+                "edges": [
+                    {"source": "Tank-101", "target": "V-101"},
+                    {"source": "V-101", "target": "Pump-201"}
+                ]
+            },
+            "start_node_id": "Tank-101",
+            "closed_valve_ids": ["V-101"]
+        }
+        ```
+    
+    Example Response:
+        ```json
+        {
+            "active_node_ids": ["Tank-101", "V-101"],
+            "active_edge_ids": ["Tank-101-V-101"],
+            "blocked_nodes": ["V-101"],
+            "flow_path": ["Tank-101", "V-101"],
+            "total_distance": 100.0,
+            "message": "Flow simulation from Tank-101: 2 nodes reached, 1 connections active. 1 nodes blocked by 1 closed valve(s)."
+        }
+        ```
+    """
+    try:
+        logger.info(
+            f"Flow simulation request: start={request.start_node_id}, "
+            f"closed_valves={len(request.closed_valve_ids)}"
+        )
+        
+        # Get flow simulator instance
+        simulator = get_flow_simulator()
+        
+        # Run simulation
+        result = simulator.simulate_flow(
+            topology=request.topology,
+            start_node_id=request.start_node_id,
+            closed_valve_ids=request.closed_valve_ids
+        )
+        
+        logger.info(
+            f"Flow simulation complete: {len(result.active_node_ids)} active nodes, "
+            f"{len(result.active_edge_ids)} active edges"
+        )
+        
+        return result
+        
+    except ValueError as e:
+        logger.error(f"Validation error: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Flow simulation failed: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Flow simulation failed: {str(e)}"
         )
 
 

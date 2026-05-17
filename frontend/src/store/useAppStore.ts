@@ -2,6 +2,15 @@
 import { create } from 'zustand';
 import type { ProcessingResult, GraphData, DetectionResult } from '@/types/api';
 
+interface FlowSimulationResult {
+  active_node_ids: string[];
+  active_edge_ids: string[];
+  blocked_nodes: string[];
+  flow_path: string[];
+  total_distance: number;
+  message: string;
+}
+
 interface AppState {
   // Image and processing data
   uploadedImage: string | null;
@@ -13,6 +22,9 @@ interface AppState {
   hoveredNodeId: string | null;
   activeView: 'canvas' | 'graph' | 'deliverables' | 'rules' | 'flow' | 'hazop' | 'editor' | 'history';
   
+  // Flow simulation state
+  flowSimulationResult: FlowSimulationResult | null;
+  
   // Actions
   setUploadedImage: (image: string | null) => void;
   setProcessingResult: (result: ProcessingResult | null) => void;
@@ -20,6 +32,7 @@ interface AppState {
   setSelectedNodeId: (id: string | null) => void;
   setHoveredNodeId: (id: string | null) => void;
   setActiveView: (view: 'canvas' | 'graph' | 'deliverables' | 'rules' | 'flow' | 'hazop' | 'editor' | 'history') => void;
+  setFlowSimulationResult: (result: FlowSimulationResult | null) => void;
   
   // Computed getters
   getDetectionById: (id: string) => DetectionResult | undefined;
@@ -34,6 +47,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectedNodeId: null,
   hoveredNodeId: null,
   activeView: 'canvas',
+  flowSimulationResult: null,
   
   // Actions
   setUploadedImage: (image) => set({ uploadedImage: image }),
@@ -47,6 +61,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   setHoveredNodeId: (id) => set({ hoveredNodeId: id }),
   
   setActiveView: (view) => set({ activeView: view }),
+  
+  setFlowSimulationResult: (result) => set({ flowSimulationResult: result }),
   
   // Computed getters
   getDetectionById: (id: string) => {
@@ -64,5 +80,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     selectedNodeId: null,
     hoveredNodeId: null,
     activeView: 'canvas',
+    flowSimulationResult: null,
   }),
 }));
