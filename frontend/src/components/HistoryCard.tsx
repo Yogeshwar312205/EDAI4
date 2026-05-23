@@ -1,16 +1,17 @@
 // History Card Component - Individual history entry
 import React from 'react';
 import type { HistoryEntry } from '@/types/history';
-import { Clock, Layers, Activity, Zap, Trash2, FolderOpen } from 'lucide-react';
+import { Clock, Layers, Activity, Zap, Trash2, FolderOpen, Loader2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 interface HistoryCardProps {
   entry: HistoryEntry;
   onLoad: (entry: HistoryEntry) => void;
   onDelete: (id: string) => void;
+  isLoading?: boolean;
 }
 
-export const HistoryCard: React.FC<HistoryCardProps> = ({ entry, onLoad, onDelete }) => {
+export const HistoryCard: React.FC<HistoryCardProps> = ({ entry, onLoad, onDelete, isLoading = false }) => {
   const [showDeleteConfirm, setShowDeleteConfirm] = React.useState(false);
 
   const handleDelete = (e: React.MouseEvent) => {
@@ -127,10 +128,15 @@ export const HistoryCard: React.FC<HistoryCardProps> = ({ entry, onLoad, onDelet
           <div className="flex gap-2">
             <button
               onClick={handleLoad}
-              className="flex items-center gap-2 px-4 py-2 bg-accent-blue text-white rounded-lg hover:bg-accent-cyan transition-colors text-sm font-medium"
+              disabled={isLoading}
+              className="flex items-center gap-2 px-4 py-2 bg-accent-blue text-white rounded-lg hover:bg-accent-cyan transition-colors text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <FolderOpen className="w-4 h-4" />
-              Load
+              {isLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <FolderOpen className="w-4 h-4" />
+              )}
+              {isLoading ? 'Loading...' : 'Load'}
             </button>
             <button
               onClick={handleDelete}

@@ -3,7 +3,7 @@ import type { HistoryEntry, HistoryStorage } from '@/types/history';
 
 const STORAGE_KEY = 'edai4_history';
 const MAX_ENTRIES = 50;
-const STORAGE_VERSION = '1.0';
+const STORAGE_VERSION = '1.1'; // bumped: imageUrl stripped from persisted entries
 
 /**
  * Load history from localStorage
@@ -29,14 +29,23 @@ export function loadHistoryFromStorage(): HistoryEntry[] {
 }
 
 /**
- * Save history to localStorage
+ * Save history to localStorage.
+ * The full-size imageUrl is intentionally NOT persisted — it is a base64
+ * string that can be 3-10MB per image and immediately exhausts the ~5MB
+ * localStorage quota. Only the small thumbnailUrl is kept for the list view.
+ * When the user loads an entry the thumbnailUrl is used as a fallback.
  */
 export function saveHistoryToStorage(entries: HistoryEntry[]): boolean {
   try {
     // Limit entries to MAX_ENTRIES (keep most recent)
     const limitedEntries = entries
       .sort((a, b) => b.timestamp - a.timestamp)
-      .slice(0, MAX_ENTRIES);
+      .slice(0, MAX_ENTRIES)
+      // Strip the full imageUrl — save only the small thumbnail
+      .map((entry) => ({
+        ...entry,
+        imageUrl: '', // cleared; thumbnailUrl is the persisted preview
+      }));
 
     const data: HistoryStorage = {
       entries: limitedEntries,
@@ -53,8 +62,11 @@ export function saveHistoryToStorage(entries: HistoryEntry[]): boolean {
     if (error instanceof DOMException && error.name === 'QuotaExceededError') {
       console.warn('LocalStorage quota exceeded. Removing oldest entries...');
       
-      // Try again with fewer entries
-      const reducedEntries = entries.slice(0, Math.floor(MAX_ENTRIES / 2));
+      // Try again with fewer entries (already stripped of imageUrls above)
+      const reducedEntries = entries
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .slice(0, Math.floor(MAX_ENTRIES / 2))
+        .map((entry) => ({ ...entry, imageUrl: '' }));
       try {
         const data: HistoryStorage = {
           entries: reducedEntries,

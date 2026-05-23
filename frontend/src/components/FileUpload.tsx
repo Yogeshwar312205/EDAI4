@@ -1,5 +1,5 @@
 // File Upload Component with Drag & Drop
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { Upload, Loader2, CheckCircle, XCircle } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import { edaiAPI } from '@/lib/api';
@@ -8,16 +8,44 @@ import { useHistoryStore } from '@/store/useHistoryStore';
 
 export const FileUpload: React.FC = () => {
   const [isDragging, setIsDragging] = useState(false);
-  const [currentFileName, setCurrentFileName] = useState<string>('');
-  const [currentImageUrl, setCurrentImageUrl] = useState<string>('');
+  // Use refs instead of state to avoid race condition:
+  // React state updates are async, so onSuccess (which fires before state commits)
+  // always received empty strings. Refs are updated synchronously.
+  const currentFileNameRef = useRef<string>('');
+  const currentImageUrlRef = useRef<string>('');
   const { setUploadedImage, setProcessingResult, setGraphData } = useAppStore();
   const { addEntry } = useHistoryStore();
+
+  /**
+   * Waits until the FileReader has finished populating imageUrl into the ref.
+   * This handles the rare case where the server responds before FileReader.onload
+   * has fired (e.g. very fast backend + small image). Resolves empty string on timeout.
+   */
+  const waitForImageUrl = (): Promise<string> =>
+    new Promise((resolve) => {
+      if (currentImageUrlRef.current) {
+        resolve(currentImageUrlRef.current);
+        return;
+      }
+      const deadline = Date.now() + 3000;
+      const poll = setInterval(() => {
+        if (currentImageUrlRef.current || Date.now() > deadline) {
+          clearInterval(poll);
+          resolve(currentImageUrlRef.current);
+        }
+      }, 50);
+    });
 
   const uploadMutation = useMutation({
     mutationFn: edaiAPI.processImage,
     onSuccess: async (data) => {
       setProcessingResult(data);
       
+      // Read from refs — fileName is always ready, imageUrl may still be loading
+      const fileName = currentFileNameRef.current;
+      // Wait for FileReader to finish in case onSuccess fired before onload
+      const imageUrl = await waitForImageUrl();
+
       // Fetch graph data with error handling
       try {
         const graphData = await edaiAPI.getGraph();
@@ -31,10 +59,12 @@ export const FileUpload: React.FC = () => {
           setGraphData(null);
         }
         
-        // Save to history
-        if (currentFileName && currentImageUrl) {
-          console.log('[FileUpload] Saving to history:', currentFileName);
-          await addEntry(currentFileName, currentImageUrl, data, graphData);
+        // Save to history — refs are always populated synchronously
+        if (fileName && imageUrl) {
+          console.log('[FileUpload] Saving to history:', fileName);
+          await addEntry(fileName, imageUrl, data, graphData);
+        } else {
+          console.warn('[FileUpload] Skipping history: missing fileName or imageUrl', { fileName, imageUrl: imageUrl?.substring(0, 40) });
         }
       } catch (error) {
         console.error('Failed to fetch graph:', error);
@@ -42,9 +72,9 @@ export const FileUpload: React.FC = () => {
         setGraphData(null);
         
         // Still save to history even if graph fetch failed
-        if (currentFileName && currentImageUrl) {
-          console.log('[FileUpload] Saving to history (no graph):', currentFileName);
-          await addEntry(currentFileName, currentImageUrl, data, null);
+        if (fileName && imageUrl) {
+          console.log('[FileUpload] Saving to history (no graph):', fileName);
+          await addEntry(fileName, imageUrl, data, null);
         }
       }
     },
@@ -60,19 +90,23 @@ export const FileUpload: React.FC = () => {
         return;
       }
 
-      // Store filename for history
-      setCurrentFileName(file.name);
+      // Store filename in ref synchronously BEFORE starting the upload
+      currentFileNameRef.current = file.name;
+      // Reset image url ref until FileReader completes
+      currentImageUrlRef.current = '';
 
-      // Create preview URL
+      // Create preview URL — read image as base64 data URL
       const reader = new FileReader();
       reader.onload = (e) => {
         const imageUrl = e.target?.result as string;
-        setCurrentImageUrl(imageUrl);
+        // Write to ref synchronously so onSuccess always sees the value
+        currentImageUrlRef.current = imageUrl;
         setUploadedImage(imageUrl);
       };
       reader.readAsDataURL(file);
 
-      // Upload to backend
+      // Upload to backend (fires after FileReader starts but may finish first;
+      // onSuccess will read from refs which are populated by then)
       uploadMutation.mutate(file);
     },
     [uploadMutation, setUploadedImage]

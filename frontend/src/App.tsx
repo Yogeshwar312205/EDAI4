@@ -169,9 +169,10 @@ function AppContent() {
                     <HistoryCard
                       key={entry.id}
                       entry={entry}
-                      onLoad={(entry) => {
-                        // Load the entry
-                        useAppStore.getState().setUploadedImage(entry.imageUrl);
+                      onLoad={async (entry) => {
+                        // Fetch the full-size image from IndexedDB; falls back to thumbnail
+                        const imageUrl = await useHistoryStore.getState().resolveImageUrl(entry);
+                        useAppStore.getState().setUploadedImage(imageUrl);
                         useAppStore.getState().setProcessingResult(entry.processingResult);
                         useAppStore.getState().setGraphData(entry.graphData);
                         useAppStore.getState().setActiveView('canvas');

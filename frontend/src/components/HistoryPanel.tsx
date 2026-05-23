@@ -1,5 +1,5 @@
 // History Panel Component - Main history view
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useAppStore } from '@/store/useAppStore';
 import { HistoryCard } from './HistoryCard';
@@ -7,28 +7,37 @@ import type { HistoryEntry } from '@/types/history';
 import { History, Search, Trash2, Upload, AlertCircle } from 'lucide-react';
 
 export const HistoryPanel: React.FC = () => {
-  const { entries, deleteEntry, clearAll, loadEntry } = useHistoryStore();
+  const { entries, deleteEntry, clearAll, resolveImageUrl } = useHistoryStore();
   const { setUploadedImage, setProcessingResult, setGraphData, setActiveView } = useAppStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [loadingEntryId, setLoadingEntryId] = useState<string | null>(null);
 
   // Filter entries based on search
   const filteredEntries = entries.filter((entry) =>
     entry.imageName.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const handleLoadEntry = (entry: HistoryEntry) => {
+  const handleLoadEntry = async (entry: HistoryEntry) => {
     console.log('[HistoryPanel] Loading entry:', entry.imageName);
-    
-    // Restore state
-    setUploadedImage(entry.imageUrl);
-    setProcessingResult(entry.processingResult);
-    setGraphData(entry.graphData);
-    
-    // Switch to canvas view
-    setActiveView('canvas');
-    
-    console.log('[HistoryPanel] Entry loaded successfully');
+    setLoadingEntryId(entry.id);
+
+    try {
+      // Fetch the full-size image from IndexedDB; falls back to thumbnail
+      const imageUrl = await resolveImageUrl(entry);
+
+      setUploadedImage(imageUrl);
+      setProcessingResult(entry.processingResult);
+      setGraphData(entry.graphData);
+
+      // Switch to canvas view
+      setActiveView('canvas');
+      console.log('[HistoryPanel] Entry loaded successfully');
+    } catch (error) {
+      console.error('[HistoryPanel] Failed to load entry:', error);
+    } finally {
+      setLoadingEntryId(null);
+    }
   };
 
   const handleClearAll = () => {
@@ -127,6 +136,7 @@ export const HistoryPanel: React.FC = () => {
             entry={entry}
             onLoad={handleLoadEntry}
             onDelete={deleteEntry}
+            isLoading={loadingEntryId === entry.id}
           />
         ))}
       </div>
