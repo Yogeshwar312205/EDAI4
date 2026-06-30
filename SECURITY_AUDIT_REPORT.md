@@ -17,7 +17,7 @@
 
 **Exposed Key:**
 ```
-GOOGLE_API_KEY=AIzaSyB3Y8xvKuC8RPbTg10yaLPpMTtELzxVDRI
+GOOGLE_API_KEY=AIzaSy***********************************[REDACTED]
 ```
 
 **Risk Level:** 🔴 **HIGH**
@@ -145,7 +145,7 @@ git log --all --full-history -- PROJECT_STATUS.md
 Even though your key is now removed from docs, it's good practice to rotate it:
 
 1. Go to [Google AI Studio](https://makersuite.google.com/app/apikey)
-2. Delete old key: `AIzaSyB3Y8xvKuC8RPbTg10yaLPpMTtELzxVDRI`
+2. Delete old key: `AIzaSy***[REDACTED]***`
 3. Create new API key
 4. Update `.env` file:
    ```env
