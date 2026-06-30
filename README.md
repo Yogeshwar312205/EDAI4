@@ -2,6 +2,8 @@
 
 **AI-Powered P&ID Analysis with YOLOv8, OCR, and Graph Intelligence**
 
+> ✨ **Project Cleaned!** 50 unnecessary files removed (June 30, 2026). See [CLEANUP_SUMMARY.md](CLEANUP_SUMMARY.md) and [PROJECT_STATUS.md](PROJECT_STATUS.md)
+
 ---
 
 ## 🚀 Quick Start
