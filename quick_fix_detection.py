@@ -15,7 +15,7 @@ from pathlib import Path
 # ============================================================================
 
 MODEL_PATH = "models/yolov8/best.pt"
-IMAGE_PATH = "test_images/Screenshot 2026-04-23 112939.png"  # Update this
+IMAGE_PATH = "D:\EDAI4\test_images\Screenshot 2026-04-23 112939.png"  # Update this
 OUTPUT_DIR = "detection_results"
 
 # Improved settings
